@@ -356,15 +356,26 @@
 <div id="app"></div>
 
 <script>
-/* Real mobile viewport height fix: dvh support/behavior is inconsistent across Android
-   browsers, so compute the true visible height from window.innerHeight directly and keep
-   it updated as the address bar shows/hides or the device rotates. */
+/* Real mobile viewport height fix: vh/dvh support/behavior is inconsistent across mobile
+   browsers (Android Chrome and iOS Safari both have quirks), so compute the true visible
+   height directly and keep it updated as the address bar shows/hides, the device rotates,
+   or Safari settles into its collapsed toolbar state shortly after load. The visualViewport
+   API is the most reliable source for this on iOS Safari specifically. */
 function setRealViewportHeight(){
-  document.documentElement.style.setProperty('--vh', (window.innerHeight * 0.01) + 'px');
+  const h = (window.visualViewport ? window.visualViewport.height : window.innerHeight);
+  document.documentElement.style.setProperty('--vh', (h * 0.01) + 'px');
 }
 setRealViewportHeight();
 window.addEventListener('resize', setRealViewportHeight);
 window.addEventListener('orientationchange', ()=> setTimeout(setRealViewportHeight, 100));
+if(window.visualViewport){
+  window.visualViewport.addEventListener('resize', setRealViewportHeight);
+  window.visualViewport.addEventListener('scroll', setRealViewportHeight);
+}
+// Safari's address bar can settle into a different (collapsed) state a moment after the
+// page first loads, without firing a resize event — re-check a couple of times to catch that.
+setTimeout(setRealViewportHeight, 300);
+setTimeout(setRealViewportHeight, 1000);
 
 /* ======================= ENGINE ======================= */
 const SUITS = ['S','H','D','C'];
