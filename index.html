@@ -34,7 +34,7 @@
   }
   h1,h2,h3,.display{font-family:'Fraunces',serif;}
   button{font-family:'Inter',sans-serif;cursor:pointer;}
-  #app{height:100vh;height:100dvh;overflow:hidden;display:flex;flex-direction:column;}
+  #app{height:100vh;height:100dvh;height:calc(var(--vh, 1vh) * 100);overflow:hidden;display:flex;flex-direction:column;}
 
   /* ---------- MENU ---------- */
   .menu-screen{
@@ -356,6 +356,16 @@
 <div id="app"></div>
 
 <script>
+/* Real mobile viewport height fix: dvh support/behavior is inconsistent across Android
+   browsers, so compute the true visible height from window.innerHeight directly and keep
+   it updated as the address bar shows/hides or the device rotates. */
+function setRealViewportHeight(){
+  document.documentElement.style.setProperty('--vh', (window.innerHeight * 0.01) + 'px');
+}
+setRealViewportHeight();
+window.addEventListener('resize', setRealViewportHeight);
+window.addEventListener('orientationchange', ()=> setTimeout(setRealViewportHeight, 100));
+
 /* ======================= ENGINE ======================= */
 const SUITS = ['S','H','D','C'];
 const SUIT_SYM = {S:'♠',H:'♥',D:'♦',C:'♣'};
