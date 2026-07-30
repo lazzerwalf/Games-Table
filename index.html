@@ -324,11 +324,11 @@
   .pairs-stock-note{text-align:center;font-size:12px;color:#cfe4da;opacity:.75;margin-top:14px;}
 
   /* sevens */
-  .sevens-board{display:flex;flex-direction:column;gap:10px;width:100%;max-width:680px;margin:0 auto;}
-  .sevens-suit-row{display:flex;align-items:center;gap:8px;}
-  .sevens-suit-label{width:22px;flex-shrink:0;font-size:19px;text-align:center;color:var(--cream);}
+  .sevens-board{display:flex;flex-direction:row;flex-wrap:wrap;gap:16px;width:100%;justify-content:center;margin:0 auto;}
+  .sevens-suit-row{display:flex;flex-direction:column;align-items:center;gap:8px;}
+  .sevens-suit-label{font-size:19px;text-align:center;color:var(--cream);margin-bottom:2px;}
   .sevens-suit-label.red{color:var(--red);}
-  .sevens-slots{display:flex;gap:4px;overflow-x:auto;padding-bottom:2px;flex:1;min-width:0;}
+  .sevens-slots{display:flex;flex-direction:column;gap:4px;}
   .sevens-slot{flex-shrink:0;width:calc(40px * var(--card-scale));}
   .sevens-slot-empty{
     width:calc(40px * var(--card-scale));height:calc(58px * var(--card-scale));border-radius:6px;
