@@ -2148,13 +2148,17 @@ function renderGreedyPigScreen(){
     rollBtn.addEventListener('click', ()=> humanPigRoll());
     actionRow.appendChild(rollBtn);
 
+    const bankBtn = document.createElement('button');
+    bankBtn.className='ghost-btn';
     if(game.turnTotal>0){
-      const bankBtn = document.createElement('button');
-      bankBtn.className='ghost-btn';
       bankBtn.textContent = `Bank ${game.turnTotal}`;
       bankBtn.addEventListener('click', ()=> humanPigBank());
-      actionRow.appendChild(bankBtn);
+    } else {
+      bankBtn.textContent = 'Bank';
+      bankBtn.disabled = true;
+      bankBtn.style.opacity = '0.35';
     }
+    actionRow.appendChild(bankBtn);
   } else if(!isHumanTurn){
     const waiting = document.createElement('div');
     waiting.style.cssText = 'font-size:13px;color:#cfe4da;opacity:.7;';
@@ -2369,13 +2373,18 @@ function renderGreedyPigOnlineGame(el, g){
     rollBtn.textContent = 'Roll the die';
     rollBtn.addEventListener('click', onlineHumanRoll);
     actionRow.appendChild(rollBtn);
+
+    const bankBtn = document.createElement('button');
+    bankBtn.className='ghost-btn';
     if(g.turnTotal>0){
-      const bankBtn = document.createElement('button');
-      bankBtn.className='ghost-btn';
       bankBtn.textContent = `Bank ${g.turnTotal}`;
       bankBtn.addEventListener('click', onlineHumanBank);
-      actionRow.appendChild(bankBtn);
+    } else {
+      bankBtn.textContent = 'Bank';
+      bankBtn.disabled = true;
+      bankBtn.style.opacity = '0.35';
     }
+    actionRow.appendChild(bankBtn);
   } else {
     const waiting = document.createElement('div');
     waiting.style.cssText = 'font-size:13px;color:#cfe4da;opacity:.7;';
