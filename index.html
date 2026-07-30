@@ -2150,6 +2150,7 @@ function renderGreedyPigScreen(){
 
     const bankBtn = document.createElement('button');
     bankBtn.className='ghost-btn';
+    bankBtn.style.cssText = 'min-width:96px;text-align:center;';
     if(game.turnTotal>0){
       bankBtn.textContent = `Bank ${game.turnTotal}`;
       bankBtn.addEventListener('click', ()=> humanPigBank());
@@ -2376,6 +2377,7 @@ function renderGreedyPigOnlineGame(el, g){
 
     const bankBtn = document.createElement('button');
     bankBtn.className='ghost-btn';
+    bankBtn.style.cssText = 'min-width:96px;text-align:center;';
     if(g.turnTotal>0){
       bankBtn.textContent = `Bank ${g.turnTotal}`;
       bankBtn.addEventListener('click', onlineHumanBank);
