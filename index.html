@@ -55,7 +55,6 @@
     position:relative;overflow:hidden;
   }
   .game-tile.active{cursor:pointer;}
-  .game-tile.active:hover{transform:translateY(-6px);border-color:var(--gold);box-shadow:0 14px 30px var(--shadow);}
   .game-tile.locked{opacity:.45;}
   .tile-suits{font-size:40px;letter-spacing:6px;color:var(--gold-bright);}
   .tile-name{font-family:'Fraunces',serif;font-size:22px;font-weight:600;color:var(--cream);}
@@ -75,7 +74,6 @@
     align-self:flex-start;background:none;border:none;color:var(--gold-bright);font-size:13px;
     margin-bottom:18px;display:flex;align-items:center;gap:6px;opacity:.85;
   }
-  .back-link:hover{opacity:1;}
   .seat-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.08);}
   .seat-row:last-child{border-bottom:none;}
   .seat-label{width:70px;color:#cfe4da;font-size:13px;}
@@ -107,7 +105,6 @@
     margin-top:22px;width:100%;padding:14px;border-radius:12px;border:none;background:var(--gold);
     color:#1c1c1c;font-weight:700;font-size:15px;letter-spacing:.02em;
   }
-  .primary-btn:hover{background:var(--gold-bright);}
   .primary-btn:disabled{opacity:.4;cursor:not-allowed;}
   .rules-note{font-size:12px;color:#cfe4da;opacity:.7;margin-top:14px;line-height:1.6;}
 
@@ -192,7 +189,6 @@
     background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);color:var(--cream);
     padding:9px 16px;border-radius:10px;font-size:13px;
   }
-  .ghost-btn:hover{background:rgba(255,255,255,.16);}
   .ghost-btn.danger{border-color:var(--red);color:#ffd9dc;}
 
   .hand-zone{padding:14px 10px 22px;display:flex;flex-direction:column;align-items:center;gap:8px;}
@@ -217,7 +213,6 @@
   .hand-card-wrap{margin-left:calc(-18px * var(--card-scale));transition:transform .15s ease, box-shadow .15s ease;}
   .hand-card-wrap:first-child{margin-left:0;}
   .hand-card-wrap.playable{cursor:pointer;}
-  .hand-card-wrap.playable:hover{transform:translateY(-12px);}
   .hand-card-wrap.chain-glow .playing-card{box-shadow:0 0 0 3px var(--gold-bright), 0 6px 14px var(--shadow);}
   .hand-card-wrap.dim .playing-card{opacity:.4;}
 
@@ -319,7 +314,6 @@
   .pairs-slot{width:calc(64px * var(--card-scale));height:calc(92px * var(--card-scale));}
   .pairs-slot .playing-card{width:100%;height:100%;cursor:default;}
   .pairs-slot.clickable .playing-card{cursor:pointer;}
-  .pairs-slot.clickable:hover .playing-card{transform:translateY(-4px);box-shadow:0 8px 18px rgba(0,0,0,.4);}
   .pairs-slot-empty{width:100%;height:100%;border-radius:8px;border:1px dashed rgba(255,255,255,.15);box-sizing:border-box;}
   .pairs-stock-note{text-align:center;font-size:12px;color:#cfe4da;opacity:.75;margin-top:14px;}
 
@@ -351,6 +345,18 @@
     z-index:90;font-size:13.5px;letter-spacing:.01em;pointer-events:none;white-space:nowrap;
   }
   .toast-banner.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+  /* Hover effects only for devices with a real mouse/pointer. On touchscreens, a tap can
+     trigger :hover without ever "leaving" the element (no cursor to move away), leaving
+     things like a lifted card stuck in that state until something else is tapped. */
+  @media (hover: hover) and (pointer: fine){
+    .game-tile.active:hover{transform:translateY(-6px);border-color:var(--gold);box-shadow:0 14px 30px var(--shadow);}
+    .back-link:hover{opacity:1;}
+    .primary-btn:hover{background:var(--gold-bright);}
+    .ghost-btn:hover{background:rgba(255,255,255,.16);}
+    .hand-card-wrap.playable:hover{transform:translateY(-12px);}
+    .pairs-slot.clickable:hover .playing-card{transform:translateY(-4px);box-shadow:0 8px 18px rgba(0,0,0,.4);}
+  }
 </style>
 </head>
 <body>
