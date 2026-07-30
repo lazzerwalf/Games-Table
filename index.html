@@ -1246,6 +1246,19 @@ async function addBotToLobby(){
   render();
 }
 
+async function removeSeatFromLobby(seatId){
+  if(!onlineIsHost || !onlineRoomState) return;
+  await refreshOnlineRoomState();
+  const seat = onlineRoomState.lobbySeats.find(s=>s.id===seatId);
+  if(!seat) { render(); return; }
+  if(!seat.isBot && !confirm(`Remove ${seat.name} from the lobby? Only do this if they've actually left — they can rejoin with the same code if not.`)) return;
+  onlineRoomState.lobbySeats = onlineRoomState.lobbySeats.filter(s=>s.id!==seatId);
+  onlineRoomState.version++;
+  const writeResult = await storageSetSafe(pigRoomKey(onlineRoomCode), JSON.stringify(onlineRoomState), true);
+  if(!writeResult){ alert('Could not remove that seat — try again.'); }
+  render();
+}
+
 async function startGreedyPigOnlineGame(){
   if(!onlineIsHost || !onlineRoomState) return;
   await refreshOnlineRoomState();
@@ -2391,7 +2404,20 @@ function renderGreedyPigOnlineLobby(el){
   seats.forEach(s=>{
     const item = document.createElement('div');
     item.className = 'score-item' + (s.deviceId===myDeviceId ? ' you' : '');
-    item.innerHTML = `<span>${s.name}${s.isBot?' 🤖':''}${s.deviceId===onlineRoomState.hostDeviceId?' — host':''}</span><span></span>`;
+    item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;';
+    const label = document.createElement('span');
+    label.textContent = `${s.name}${s.isBot?' 🤖':''}${s.deviceId===onlineRoomState.hostDeviceId?' — host':''}`;
+    item.appendChild(label);
+    if(onlineIsHost && s.deviceId!==onlineRoomState.hostDeviceId){
+      const removeBtn = document.createElement('button');
+      removeBtn.textContent = '✕';
+      removeBtn.title = s.isBot ? 'Remove bot' : 'Remove player (only if they have left)';
+      removeBtn.style.cssText = 'background:none;border:none;color:#ffb3b8;font-size:15px;padding:2px 6px;cursor:pointer;line-height:1;';
+      removeBtn.addEventListener('click', ()=> removeSeatFromLobby(s.id));
+      item.appendChild(removeBtn);
+    } else {
+      item.appendChild(document.createElement('span'));
+    }
     list.appendChild(item);
   });
 
@@ -2815,7 +2841,20 @@ function renderPairsOnlineLobby(el){
   seats.forEach(s=>{
     const item = document.createElement('div');
     item.className = 'score-item' + (s.deviceId===myDeviceId ? ' you' : '');
-    item.innerHTML = `<span>${s.name}${s.isBot?' 🤖':''}${s.deviceId===onlineRoomState.hostDeviceId?' — host':''}</span><span></span>`;
+    item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;';
+    const label = document.createElement('span');
+    label.textContent = `${s.name}${s.isBot?' 🤖':''}${s.deviceId===onlineRoomState.hostDeviceId?' — host':''}`;
+    item.appendChild(label);
+    if(onlineIsHost && s.deviceId!==onlineRoomState.hostDeviceId){
+      const removeBtn = document.createElement('button');
+      removeBtn.textContent = '✕';
+      removeBtn.title = s.isBot ? 'Remove bot' : 'Remove player (only if they have left)';
+      removeBtn.style.cssText = 'background:none;border:none;color:#ffb3b8;font-size:15px;padding:2px 6px;cursor:pointer;line-height:1;';
+      removeBtn.addEventListener('click', ()=> removeSeatFromLobby(s.id));
+      item.appendChild(removeBtn);
+    } else {
+      item.appendChild(document.createElement('span'));
+    }
     list.appendChild(item);
   });
 
@@ -3359,7 +3398,20 @@ function renderBlack5OnlineLobby(el){
   seats.forEach(s=>{
     const item = document.createElement('div');
     item.className = 'score-item' + (s.deviceId===myDeviceId ? ' you' : '');
-    item.innerHTML = `<span>${s.name}${s.isBot?' 🤖':''}${s.deviceId===onlineRoomState.hostDeviceId?' — host':''}</span><span></span>`;
+    item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;';
+    const label = document.createElement('span');
+    label.textContent = `${s.name}${s.isBot?' 🤖':''}${s.deviceId===onlineRoomState.hostDeviceId?' — host':''}`;
+    item.appendChild(label);
+    if(onlineIsHost && s.deviceId!==onlineRoomState.hostDeviceId){
+      const removeBtn = document.createElement('button');
+      removeBtn.textContent = '✕';
+      removeBtn.title = s.isBot ? 'Remove bot' : 'Remove player (only if they have left)';
+      removeBtn.style.cssText = 'background:none;border:none;color:#ffb3b8;font-size:15px;padding:2px 6px;cursor:pointer;line-height:1;';
+      removeBtn.addEventListener('click', ()=> removeSeatFromLobby(s.id));
+      item.appendChild(removeBtn);
+    } else {
+      item.appendChild(document.createElement('span'));
+    }
     list.appendChild(item);
   });
 
@@ -3869,7 +3921,20 @@ function renderSevensOnlineLobby(el){
   seats.forEach(s=>{
     const item = document.createElement('div');
     item.className = 'score-item' + (s.deviceId===myDeviceId ? ' you' : '');
-    item.innerHTML = `<span>${s.name}${s.isBot?' 🤖':''}${s.deviceId===onlineRoomState.hostDeviceId?' — host':''}</span><span></span>`;
+    item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;';
+    const label = document.createElement('span');
+    label.textContent = `${s.name}${s.isBot?' 🤖':''}${s.deviceId===onlineRoomState.hostDeviceId?' — host':''}`;
+    item.appendChild(label);
+    if(onlineIsHost && s.deviceId!==onlineRoomState.hostDeviceId){
+      const removeBtn = document.createElement('button');
+      removeBtn.textContent = '✕';
+      removeBtn.title = s.isBot ? 'Remove bot' : 'Remove player (only if they have left)';
+      removeBtn.style.cssText = 'background:none;border:none;color:#ffb3b8;font-size:15px;padding:2px 6px;cursor:pointer;line-height:1;';
+      removeBtn.addEventListener('click', ()=> removeSeatFromLobby(s.id));
+      item.appendChild(removeBtn);
+    } else {
+      item.appendChild(document.createElement('span'));
+    }
     list.appendChild(item);
   });
 
@@ -4292,7 +4357,20 @@ function renderBonkOnlineLobby(el){
   seats.forEach(s=>{
     const item = document.createElement('div');
     item.className = 'score-item' + (s.deviceId===myDeviceId ? ' you' : '');
-    item.innerHTML = `<span>${s.name}${s.isBot?' 🤖':''}${s.deviceId===onlineRoomState.hostDeviceId?' — host':''}</span><span></span>`;
+    item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;';
+    const label = document.createElement('span');
+    label.textContent = `${s.name}${s.isBot?' 🤖':''}${s.deviceId===onlineRoomState.hostDeviceId?' — host':''}`;
+    item.appendChild(label);
+    if(onlineIsHost && s.deviceId!==onlineRoomState.hostDeviceId){
+      const removeBtn = document.createElement('button');
+      removeBtn.textContent = '✕';
+      removeBtn.title = s.isBot ? 'Remove bot' : 'Remove player (only if they have left)';
+      removeBtn.style.cssText = 'background:none;border:none;color:#ffb3b8;font-size:15px;padding:2px 6px;cursor:pointer;line-height:1;';
+      removeBtn.addEventListener('click', ()=> removeSeatFromLobby(s.id));
+      item.appendChild(removeBtn);
+    } else {
+      item.appendChild(document.createElement('span'));
+    }
     list.appendChild(item);
   });
 
