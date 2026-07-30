@@ -3790,7 +3790,8 @@ function renderSevensOnlineGame(el, g){
     const slots = document.createElement('div');
     slots.className = 'sevens-slots';
     const s = g.board[suit];
-    SEVENS_ORDER.forEach((rank, idx)=>{
+    [...SEVENS_ORDER].reverse().forEach((rank)=>{
+      const idx = SEVENS_ORDER.indexOf(rank);
       const played = s.low!==null && idx>=s.low && idx<=s.high;
       const slot = document.createElement('div');
       slot.className = 'sevens-slot';
@@ -4705,7 +4706,8 @@ function renderSevensScreen(){
     const slots = document.createElement('div');
     slots.className = 'sevens-slots';
     const s = game.board[suit];
-    SEVENS_ORDER.forEach((rank, idx)=>{
+    [...SEVENS_ORDER].reverse().forEach((rank)=>{
+      const idx = SEVENS_ORDER.indexOf(rank);
       const played = s.low!==null && idx>=s.low && idx<=s.high;
       const slot = document.createElement('div');
       slot.className = 'sevens-slot';
