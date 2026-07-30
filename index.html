@@ -1191,7 +1191,7 @@ async function createGreedyPigOnlineRoom(hostName){
   const seatId = 'p_'+myDeviceId.slice(4,9);
   const room = {
     gameType: 'greedypig', version: 1, phase: 'lobby', hostDeviceId: myDeviceId, code,
-    lobbySeats: [ {id:seatId, name:(hostName||'Host').slice(0,20), isBot:false, deviceId:myDeviceId} ],
+    lobbySeats: [ {id:seatId, name:(hostName||'Host').slice(0,16), isBot:false, deviceId:myDeviceId} ],
   };
   const result = await storageSetSafe(pigRoomKey(code), JSON.stringify(room), true);
   if(!result){ alert('Could not create the room — check your connection and try again.'); return; }
@@ -1214,7 +1214,7 @@ async function joinGreedyPigOnlineRoom(codeRaw, guestName){
   if(!room.lobbySeats.some(s=>s.deviceId===myDeviceId)){
     if(room.lobbySeats.length>=maxSeatsForGameType('greedypig')){ alert('That room is full.'); return; }
     const seatId = 'p_'+myDeviceId.slice(4,9);
-    room.lobbySeats.push({id:seatId, name:(guestName||'Player').slice(0,20), isBot:false, deviceId:myDeviceId});
+    room.lobbySeats.push({id:seatId, name:(guestName||'Player').slice(0,16), isBot:false, deviceId:myDeviceId});
     room.version = (room.version||1)+1;
     const writeResult = await storageSetSafe(pigRoomKey(code), JSON.stringify(room), true);
     if(!writeResult){ alert('Could not join right now — try again.'); return; }
@@ -1589,7 +1589,7 @@ function renderSetup(){
     row.className = 'seat-row';
     row.innerHTML = `
       <div class="seat-label">Seat ${i+1}</div>
-      <input class="seat-name-input" value="${seat.name}" />
+      <input class="seat-name-input" value="${seat.name}" maxlength="16" />
       <div class="toggle-group">
         <button class="toggle-btn ${!seat.isBot?'on':''}" data-role="human">Human</button>
         <button class="toggle-btn ${seat.isBot?'on':''}" data-role="bot">Bot</button>
@@ -2332,12 +2332,12 @@ function renderGreedyPigOnlineSetupPanel(){
     <div class="rules-note" style="margin-bottom:20px;">Play with someone on a different phone: one of you creates a room and shares the 4-letter code, the other joins with it. Works from anywhere with an internet connection.</div>
     <div style="margin-bottom:26px;">
       <h4 style="font-family:'Fraunces',serif;font-size:15px;color:var(--gold-bright);margin:0 0 10px;">Create a room</h4>
-      <input class="seat-name-input" id="hostNameInput" placeholder="Your name" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
+      <input class="seat-name-input" id="hostNameInput" placeholder="Your name" maxlength="16" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
       <button class="primary-btn" id="createRoomBtn">Create room</button>
     </div>
     <div>
       <h4 style="font-family:'Fraunces',serif;font-size:15px;color:var(--gold-bright);margin:0 0 10px;">Join a room</h4>
-      <input class="seat-name-input" id="guestNameInput" placeholder="Your name" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
+      <input class="seat-name-input" id="guestNameInput" placeholder="Your name" maxlength="16" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
       <input class="seat-name-input" id="roomCodeInput" placeholder="Room code" style="margin-bottom:10px;width:100%;box-sizing:border-box;text-transform:uppercase;letter-spacing:.1em;" maxlength="4">
       <button class="primary-btn" id="joinRoomBtn">Join room</button>
     </div>
@@ -2583,7 +2583,7 @@ async function createPairsOnlineRoom(hostName){
   const seatId = 'p_'+myDeviceId.slice(4,9);
   const room = {
     gameType: 'pairs', version: 1, phase: 'lobby', hostDeviceId: myDeviceId, code,
-    lobbySeats: [ {id:seatId, name:(hostName||'Host').slice(0,20), isBot:false, deviceId:myDeviceId} ],
+    lobbySeats: [ {id:seatId, name:(hostName||'Host').slice(0,16), isBot:false, deviceId:myDeviceId} ],
     packCount: 1,
   };
   const result = await storageSetSafe(pigRoomKey(code), JSON.stringify(room), true);
@@ -2607,7 +2607,7 @@ async function joinPairsOnlineRoom(codeRaw, guestName){
   if(!room.lobbySeats.some(s=>s.deviceId===myDeviceId)){
     if(room.lobbySeats.length>=maxSeatsForGameType('pairs')){ alert('That room is full.'); return; }
     const seatId = 'p_'+myDeviceId.slice(4,9);
-    room.lobbySeats.push({id:seatId, name:(guestName||'Player').slice(0,20), isBot:false, deviceId:myDeviceId});
+    room.lobbySeats.push({id:seatId, name:(guestName||'Player').slice(0,16), isBot:false, deviceId:myDeviceId});
     room.version = (room.version||1)+1;
     const writeResult = await storageSetSafe(pigRoomKey(code), JSON.stringify(room), true);
     if(!writeResult){ alert('Could not join right now — try again.'); return; }
@@ -2756,12 +2756,12 @@ function renderPairsOnlineSetupPanel(){
     <div class="rules-note" style="margin-bottom:20px;">Play with someone on a different phone: one of you creates a room and shares the 4-letter code, the other joins with it. Works from anywhere with an internet connection.</div>
     <div style="margin-bottom:26px;">
       <h4 style="font-family:'Fraunces',serif;font-size:15px;color:var(--gold-bright);margin:0 0 10px;">Create a room</h4>
-      <input class="seat-name-input" id="hostNameInput" placeholder="Your name" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
+      <input class="seat-name-input" id="hostNameInput" placeholder="Your name" maxlength="16" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
       <button class="primary-btn" id="createRoomBtn">Create room</button>
     </div>
     <div>
       <h4 style="font-family:'Fraunces',serif;font-size:15px;color:var(--gold-bright);margin:0 0 10px;">Join a room</h4>
-      <input class="seat-name-input" id="guestNameInput" placeholder="Your name" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
+      <input class="seat-name-input" id="guestNameInput" placeholder="Your name" maxlength="16" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
       <input class="seat-name-input" id="roomCodeInput" placeholder="Room code" style="margin-bottom:10px;width:100%;box-sizing:border-box;text-transform:uppercase;letter-spacing:.1em;" maxlength="4">
       <button class="primary-btn" id="joinRoomBtn">Join room</button>
     </div>
@@ -3014,7 +3014,7 @@ async function createBlack5OnlineRoom(hostName){
   const seatId = 'p_'+myDeviceId.slice(4,9);
   const room = {
     gameType: 'black5', version: 1, phase: 'lobby', hostDeviceId: myDeviceId, code,
-    lobbySeats: [ {id:seatId, name:(hostName||'Host').slice(0,20), isBot:false, deviceId:myDeviceId} ],
+    lobbySeats: [ {id:seatId, name:(hostName||'Host').slice(0,16), isBot:false, deviceId:myDeviceId} ],
   };
   const result = await storageSetSafe(pigRoomKey(code), JSON.stringify(room), true);
   if(!result){ alert('Could not create the room — check your connection and try again.'); return; }
@@ -3037,7 +3037,7 @@ async function joinBlack5OnlineRoom(codeRaw, guestName){
   if(!room.lobbySeats.some(s=>s.deviceId===myDeviceId)){
     if(room.lobbySeats.length>=maxSeatsForGameType('black5')){ alert('That room is full.'); return; }
     const seatId = 'p_'+myDeviceId.slice(4,9);
-    room.lobbySeats.push({id:seatId, name:(guestName||'Player').slice(0,20), isBot:false, deviceId:myDeviceId});
+    room.lobbySeats.push({id:seatId, name:(guestName||'Player').slice(0,16), isBot:false, deviceId:myDeviceId});
     room.version = (room.version||1)+1;
     const writeResult = await storageSetSafe(pigRoomKey(code), JSON.stringify(room), true);
     if(!writeResult){ alert('Could not join right now — try again.'); return; }
@@ -3299,12 +3299,12 @@ function renderBlack5OnlineSetupPanel(){
     <div class="rules-note" style="margin-bottom:20px;">Play with someone on a different phone: one of you creates a room and shares the 4-letter code, the other joins with it. Works from anywhere with an internet connection. Everyone's own hand stays private on their own screen — but note this uses a simple shared-state model, so a technically curious player could inspect the page's network traffic to see other hands. Fine for a casual game with friends.</div>
     <div style="margin-bottom:26px;">
       <h4 style="font-family:'Fraunces',serif;font-size:15px;color:var(--gold-bright);margin:0 0 10px;">Create a room</h4>
-      <input class="seat-name-input" id="hostNameInput" placeholder="Your name" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
+      <input class="seat-name-input" id="hostNameInput" placeholder="Your name" maxlength="16" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
       <button class="primary-btn" id="createRoomBtn">Create room</button>
     </div>
     <div>
       <h4 style="font-family:'Fraunces',serif;font-size:15px;color:var(--gold-bright);margin:0 0 10px;">Join a room</h4>
-      <input class="seat-name-input" id="guestNameInput" placeholder="Your name" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
+      <input class="seat-name-input" id="guestNameInput" placeholder="Your name" maxlength="16" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
       <input class="seat-name-input" id="roomCodeInput" placeholder="Room code" style="margin-bottom:10px;width:100%;box-sizing:border-box;text-transform:uppercase;letter-spacing:.1em;" maxlength="4">
       <button class="primary-btn" id="joinRoomBtn">Join room</button>
     </div>
@@ -3677,7 +3677,7 @@ async function createSevensOnlineRoom(hostName){
   const seatId = 'p_'+myDeviceId.slice(4,9);
   const room = {
     gameType: 'sevens', version: 1, phase: 'lobby', hostDeviceId: myDeviceId, code,
-    lobbySeats: [ {id:seatId, name:(hostName||'Host').slice(0,20), isBot:false, deviceId:myDeviceId} ],
+    lobbySeats: [ {id:seatId, name:(hostName||'Host').slice(0,16), isBot:false, deviceId:myDeviceId} ],
   };
   const result = await storageSetSafe(pigRoomKey(code), JSON.stringify(room), true);
   if(!result){ alert('Could not create the room — check your connection and try again.'); return; }
@@ -3700,7 +3700,7 @@ async function joinSevensOnlineRoom(codeRaw, guestName){
   if(!room.lobbySeats.some(s=>s.deviceId===myDeviceId)){
     if(room.lobbySeats.length>=maxSeatsForGameType('sevens')){ alert('That room is full.'); return; }
     const seatId = 'p_'+myDeviceId.slice(4,9);
-    room.lobbySeats.push({id:seatId, name:(guestName||'Player').slice(0,20), isBot:false, deviceId:myDeviceId});
+    room.lobbySeats.push({id:seatId, name:(guestName||'Player').slice(0,16), isBot:false, deviceId:myDeviceId});
     room.version = (room.version||1)+1;
     const writeResult = await storageSetSafe(pigRoomKey(code), JSON.stringify(room), true);
     if(!writeResult){ alert('Could not join right now — try again.'); return; }
@@ -3809,12 +3809,12 @@ function renderSevensOnlineSetupPanel(){
     <div class="rules-note" style="margin-bottom:20px;">Play with someone on a different phone: one of you creates a room and shares the 4-letter code, the other joins with it. Works from anywhere with an internet connection. Your own hand stays private on your own screen — same simple shared-state trade-off as Black 5's online mode.</div>
     <div style="margin-bottom:26px;">
       <h4 style="font-family:'Fraunces',serif;font-size:15px;color:var(--gold-bright);margin:0 0 10px;">Create a room</h4>
-      <input class="seat-name-input" id="hostNameInput" placeholder="Your name" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
+      <input class="seat-name-input" id="hostNameInput" placeholder="Your name" maxlength="16" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
       <button class="primary-btn" id="createRoomBtn">Create room</button>
     </div>
     <div>
       <h4 style="font-family:'Fraunces',serif;font-size:15px;color:var(--gold-bright);margin:0 0 10px;">Join a room</h4>
-      <input class="seat-name-input" id="guestNameInput" placeholder="Your name" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
+      <input class="seat-name-input" id="guestNameInput" placeholder="Your name" maxlength="16" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
       <input class="seat-name-input" id="roomCodeInput" placeholder="Room code" style="margin-bottom:10px;width:100%;box-sizing:border-box;text-transform:uppercase;letter-spacing:.1em;" maxlength="4">
       <button class="primary-btn" id="joinRoomBtn">Join room</button>
     </div>
@@ -4094,7 +4094,7 @@ async function createBonkOnlineRoom(hostName){
   const seatId = 'p_'+myDeviceId.slice(4,9);
   const room = {
     gameType: 'bonk', version: 1, phase: 'lobby', hostDeviceId: myDeviceId, code,
-    lobbySeats: [ {id:seatId, name:(hostName||'Host').slice(0,20), isBot:false, deviceId:myDeviceId} ],
+    lobbySeats: [ {id:seatId, name:(hostName||'Host').slice(0,16), isBot:false, deviceId:myDeviceId} ],
   };
   const result = await storageSetSafe(pigRoomKey(code), JSON.stringify(room), true);
   if(!result){ alert('Could not create the room — check your connection and try again.'); return; }
@@ -4117,7 +4117,7 @@ async function joinBonkOnlineRoom(codeRaw, guestName){
   if(!room.lobbySeats.some(s=>s.deviceId===myDeviceId)){
     if(room.lobbySeats.length>=maxSeatsForGameType('bonk')){ alert('That room is full.'); return; }
     const seatId = 'p_'+myDeviceId.slice(4,9);
-    room.lobbySeats.push({id:seatId, name:(guestName||'Player').slice(0,20), isBot:false, deviceId:myDeviceId});
+    room.lobbySeats.push({id:seatId, name:(guestName||'Player').slice(0,16), isBot:false, deviceId:myDeviceId});
     room.version = (room.version||1)+1;
     const writeResult = await storageSetSafe(pigRoomKey(code), JSON.stringify(room), true);
     if(!writeResult){ alert('Could not join right now — try again.'); return; }
@@ -4232,12 +4232,12 @@ function renderBonkOnlineSetupPanel(){
     <div class="rules-note" style="margin-bottom:20px;">Play with someone on a different phone: one of you creates a room and shares the 4-letter code, the other joins with it. Works from anywhere with an internet connection. Your own hand stays private on your own screen — same simple shared-state trade-off as the other games' online modes.</div>
     <div style="margin-bottom:26px;">
       <h4 style="font-family:'Fraunces',serif;font-size:15px;color:var(--gold-bright);margin:0 0 10px;">Create a room</h4>
-      <input class="seat-name-input" id="hostNameInput" placeholder="Your name" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
+      <input class="seat-name-input" id="hostNameInput" placeholder="Your name" maxlength="16" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
       <button class="primary-btn" id="createRoomBtn">Create room</button>
     </div>
     <div>
       <h4 style="font-family:'Fraunces',serif;font-size:15px;color:var(--gold-bright);margin:0 0 10px;">Join a room</h4>
-      <input class="seat-name-input" id="guestNameInput" placeholder="Your name" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
+      <input class="seat-name-input" id="guestNameInput" placeholder="Your name" maxlength="16" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
       <input class="seat-name-input" id="roomCodeInput" placeholder="Room code" style="margin-bottom:10px;width:100%;box-sizing:border-box;text-transform:uppercase;letter-spacing:.1em;" maxlength="4">
       <button class="primary-btn" id="joinRoomBtn">Join room</button>
     </div>
