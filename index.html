@@ -328,8 +328,9 @@
   .sevens-suit-row{display:flex;flex-direction:column;align-items:center;gap:8px;}
   .sevens-suit-label{font-size:19px;text-align:center;color:var(--cream);margin-bottom:2px;}
   .sevens-suit-label.red{color:var(--red);}
-  .sevens-slots{display:flex;flex-direction:column;gap:4px;}
-  .sevens-slot{flex-shrink:0;width:calc(40px * var(--card-scale));}
+  .sevens-slots{display:flex;flex-direction:column;padding-top:4px;}
+  .sevens-slot{flex-shrink:0;width:calc(40px * var(--card-scale));margin-top:calc(-34px * var(--card-scale));position:relative;}
+  .sevens-slot:first-child{margin-top:0;}
   .sevens-slot-empty{
     width:calc(40px * var(--card-scale));height:calc(58px * var(--card-scale));border-radius:6px;
     border:1px dashed rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;
