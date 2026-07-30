@@ -196,7 +196,7 @@
   .ghost-btn.danger{border-color:var(--red);color:#ffd9dc;}
 
   .hand-zone{padding:14px 10px 22px;display:flex;flex-direction:column;align-items:center;gap:8px;}
-  .hand-fan{display:flex;justify-content:center;}
+  .hand-fan{display:flex;justify-content:center;flex-wrap:wrap;row-gap:10px;}
   .playing-card{
     width:calc(64px * var(--card-scale));height:calc(92px * var(--card-scale));
     background:var(--cream);border-radius:8px;border:1px solid rgba(0,0,0,.2);
@@ -805,6 +805,13 @@ class PairsGame{
 /* ======================= SEVENS ENGINE ======================= */
 const SEVENS_ORDER = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
 function sevensRankIndex(rank){ return SEVENS_ORDER.indexOf(rank); }
+function sortSevensHand(hand){
+  const suitOrder = {S:0,H:1,D:2,C:3};
+  return [...hand].sort((a,b)=>{
+    if(a.suit!==b.suit) return suitOrder[a.suit]-suitOrder[b.suit];
+    return sevensRankIndex(a.rank)-sevensRankIndex(b.rank);
+  });
+}
 
 class SevensGame{
   constructor(playerDefs){
@@ -3801,7 +3808,7 @@ function renderSevensOnlineGame(el, g){
   const actionRow = el.querySelector('.action-row');
   if(me){
     const valid = isMyTurn ? g.validPlaysFor(me).map(c=>c.id) : [];
-    me.hand.forEach(card=>{
+    sortSevensHand(me.hand).forEach(card=>{
       const wrap = document.createElement('div');
       wrap.className = 'hand-card-wrap';
       const clickable = isMyTurn && valid.includes(card.id);
@@ -4723,7 +4730,7 @@ function renderSevensScreen(){
     const isMyTurn = displayPlayer.id === cp.id && !displayPlayer.isBot;
     const valid = isMyTurn ? game.validPlaysFor(displayPlayer).map(c=>c.id) : [];
 
-    displayPlayer.hand.forEach(card=>{
+    sortSevensHand(displayPlayer.hand).forEach(card=>{
       const wrap = document.createElement('div');
       wrap.className = 'hand-card-wrap';
       const clickable = isMyTurn && !uiLock && valid.includes(card.id);
