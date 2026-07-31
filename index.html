@@ -1077,6 +1077,29 @@ function sfxDiceRoll(){
   }
 }
 function sfxBust(){ playTone(300, 0.15, 'sawtooth', 0, 0.12); playTone(150, 0.25, 'sawtooth', 0.1, 0.12); }
+function playWomp(startFreq, endFreq, duration, startTime){
+  if(soundMuted) return;
+  const ctx = getAudioCtx();
+  if(!ctx) return;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = 'sawtooth';
+  const t0 = ctx.currentTime + startTime;
+  osc.frequency.setValueAtTime(startFreq, t0);
+  osc.frequency.exponentialRampToValueAtTime(endFreq, t0 + duration);
+  gain.gain.setValueAtTime(0, t0);
+  gain.gain.linearRampToValueAtTime(0.18, t0 + 0.03);
+  gain.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(t0);
+  osc.stop(t0 + duration + 0.05);
+}
+function sfxBigBust(){
+  // "Womp womp" — classic sad-trombone descending double-note, for busting a big turn total.
+  playWomp(300, 190, 0.35, 0);
+  playWomp(260, 150, 0.4, 0.4);
+}
 function sfxBank(){ playTone(700, 0.1, 'sine', 0, 0.12); playTone(1000, 0.15, 'sine', 0.08, 0.12); }
 function sfxMatch(){ playTone(660, 0.12, 'sine', 0, 0.15); playTone(880, 0.15, 'sine', 0.1, 0.15); playTone(1100, 0.2, 'sine', 0.2, 0.15); }
 function sfxNoMatch(){ playTone(220, 0.2, 'sawtooth', 0, 0.08); }
@@ -1298,8 +1321,9 @@ async function onlineHumanRoll(){
   const me = g.currentPlayer();
   if(me.deviceId !== myDeviceId || me.isBot) { render(); return; }
   sfxDiceRoll();
+  const lostAmount = g.turnTotal;
   const r = g.roll();
-  if(r && r.bust){ sfxBust(); showToast(`${me.name} rolled a 1 — turn over!`); }
+  if(r && r.bust){ (lostAmount>20 ? sfxBigBust() : sfxBust()); showToast(`${me.name} rolled a 1 — turn over!`); }
   await writeGreedyPigGameState(g);
 }
 async function onlineHumanBank(){
@@ -1349,8 +1373,9 @@ function maybeDriveOnlineGreedyPigBotTurn(){
       if(result && result.won){ sfxWin(); showToast(`${cp.name} wins with ${cp.score} points! 🎉`); }
     } else {
       sfxDiceRoll();
+      const lostAmount = g2.turnTotal;
       const r = g2.roll();
-      if(r.bust){ sfxBust(); showToast(`${cp.name} rolled a 1 — turn over!`); }
+      if(r.bust){ (lostAmount>20 ? sfxBigBust() : sfxBust()); showToast(`${cp.name} rolled a 1 — turn over!`); }
     }
     await writeGreedyPigGameState(g2);
     onlineBotTurnInFlight = false;
@@ -4580,8 +4605,9 @@ function humanPigRoll(){
   const actor = game.currentPlayer();
   if(actor.isBot) return;
   sfxDiceRoll();
+  const lostAmount = game.turnTotal;
   const r = game.roll();
-  if(r.bust){ sfxBust(); showToast(`${actor.name} rolled a 1 — turn over!`); }
+  if(r.bust){ (lostAmount>20 ? sfxBigBust() : sfxBust()); showToast(`${actor.name} rolled a 1 — turn over!`); }
   render();
   maybeRunGreedyPigBotTurn();
 }
@@ -4620,9 +4646,10 @@ function runGreedyPigBotTurn(bot){
     return;
   }
   sfxDiceRoll();
+  const lostAmount = game.turnTotal;
   const r = game.roll();
   if(r.bust){
-    sfxBust();
+    (lostAmount>20 ? sfxBigBust() : sfxBust());
     showToast(`${bot.name} rolled a 1 — turn over!`);
     uiLock=false;
     render();
