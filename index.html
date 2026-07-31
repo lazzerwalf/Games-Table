@@ -2259,14 +2259,14 @@ function renderGreedyPigScreen(){
   if(isHumanTurn && !uiLock){
     const rollBtn = document.createElement('button');
     rollBtn.className='primary-btn';
-    rollBtn.style.cssText='width:auto;padding:12px 26px;';
+    rollBtn.style.cssText='width:auto;padding:18px 46px;font-size:18px;margin-top:0;';
     rollBtn.textContent = 'Roll the die';
     rollBtn.addEventListener('click', ()=> humanPigRoll());
     actionRow.appendChild(rollBtn);
 
     const bankBtn = document.createElement('button');
     bankBtn.className='ghost-btn';
-    bankBtn.style.cssText = 'min-width:96px;text-align:center;';
+    bankBtn.style.cssText = 'min-width:110px;text-align:center;padding:14px 18px;font-size:15px;';
     if(game.turnTotal>0){
       bankBtn.textContent = `Bank ${game.turnTotal}`;
       bankBtn.addEventListener('click', ()=> humanPigBank());
@@ -2500,14 +2500,14 @@ function renderGreedyPigOnlineGame(el, g){
   if(isMyTurn){
     const rollBtn = document.createElement('button');
     rollBtn.className='primary-btn';
-    rollBtn.style.cssText='width:auto;padding:12px 26px;';
+    rollBtn.style.cssText='width:auto;padding:18px 46px;font-size:18px;margin-top:0;';
     rollBtn.textContent = 'Roll the die';
     rollBtn.addEventListener('click', onlineHumanRoll);
     actionRow.appendChild(rollBtn);
 
     const bankBtn = document.createElement('button');
     bankBtn.className='ghost-btn';
-    bankBtn.style.cssText = 'min-width:96px;text-align:center;';
+    bankBtn.style.cssText = 'min-width:110px;text-align:center;padding:14px 18px;font-size:15px;';
     if(g.turnTotal>0){
       bankBtn.textContent = `Bank ${g.turnTotal}`;
       bankBtn.addEventListener('click', onlineHumanBank);
