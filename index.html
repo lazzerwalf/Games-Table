@@ -1032,6 +1032,8 @@ class TrumpsGame{
     this.roundComplete = false; // trick tally shown, waiting to continue
     this.awaitingTrumpCall = false; // waiting on the caller to pick next round's suit
     this.trumpCallerId = null;
+    this.trickComplete = false; // a trick just finished and is being shown before clearing
+    this.pendingTrickWinnerId = null;
     this.gameOver = false;
     this.winner = null;
   }
@@ -1056,7 +1058,7 @@ class TrumpsGame{
     }
   }
 
-  startRound(chosenTrumpSuit){
+  startRound(){
     this.roundNum++;
     this.rotateDealer();
     const active = this.activePlayers();
@@ -1067,18 +1069,23 @@ class TrumpsGame{
     this.trick = [];
     this.leadSuit = null;
     this.roundComplete = false;
-    this.awaitingTrumpCall = false;
+    this.trickComplete = false;
+    this.pendingTrickWinnerId = null;
+
+    const dealerPos = this.roundOrder.indexOf(this.dealerId);
+    this.currentIndex = (dealerPos+1) % this.roundOrder.length;
 
     if(this.roundNum===1){
       const flipCard = deck.shift();
       this.trumpSuit = flipCard.suit;
+      this.awaitingTrumpCall = false;
       this.log = [`Round 1 — ${this.getPlayer(this.dealerId).name} deals ${handSize} each. ${flipCard.rank}${SUIT_SYM[flipCard.suit]} turned up — ${SUIT_SYM[this.trumpSuit]} is trumps.`];
     } else {
-      this.trumpSuit = chosenTrumpSuit;
-      this.log = [`Round ${this.roundNum} — ${this.getPlayer(this.dealerId).name} deals ${handSize} each. ${SUIT_SYM[this.trumpSuit]} is trumps.`];
+      // Hands are dealt before trumps are called — the caller picks based on what they're holding.
+      this.trumpSuit = null;
+      this.awaitingTrumpCall = true;
+      this.log = [`Round ${this.roundNum} — ${this.getPlayer(this.dealerId).name} deals ${handSize} each. Waiting for ${this.getPlayer(this.trumpCallerId).name} to call trumps.`];
     }
-    const dealerPos = this.roundOrder.indexOf(this.dealerId);
-    this.currentIndex = (dealerPos+1) % this.roundOrder.length;
   }
 
   isValidPlay(player, card){
@@ -1115,21 +1122,34 @@ class TrumpsGame{
       return {played:true};
     }
 
+    // Trick complete — resolve the winner but leave the played cards on the table so the
+    // UI can show the finished trick for a moment before clearing it (see finishTrickAndAdvance).
     const winnerEntry = this.resolveTrick();
     const winner = this.getPlayer(winnerEntry.playerId);
     winner.tricksWon++;
     this.log.push(`${winner.name} wins the trick with ${winnerEntry.card.rank}${SUIT_SYM[winnerEntry.card.suit]}.`);
-    const lastTrick = this.trick;
+    this.trickComplete = true;
+    this.pendingTrickWinnerId = winner.id;
+    return {trickComplete:true, trickWinnerId:winner.id};
+  }
+
+  // Called by the UI once the completed trick has been shown for a moment. Clears the table,
+  // hands the lead to the trick winner, and checks whether the round just ended.
+  finishTrickAndAdvance(){
+    if(!this.trickComplete) return null;
+    const winner = this.getPlayer(this.pendingTrickWinnerId);
     this.trick = [];
     this.leadSuit = null;
+    this.trickComplete = false;
+    this.pendingTrickWinnerId = null;
     this.currentIndex = this.roundOrder.indexOf(winner.id);
 
     const roundOver = this.roundOrder.every(id=>this.getPlayer(id).hand.length===0);
     if(roundOver){
       this.finishRound();
-      return {trickWon:true, roundOver:true, trickWinnerId:winner.id, lastTrick};
+      return {roundOver:true};
     }
-    return {trickWon:true, roundOver:false, trickWinnerId:winner.id, lastTrick};
+    return {roundOver:false};
   }
 
   finishRound(){
@@ -1166,12 +1186,13 @@ class TrumpsGame{
       this.trumpCallerId = top[0].player.id;
       this.log.push(`Tie for most tricks — cutting the deck: ${draws.map(d=>d.player.name+' drew '+d.card.rank+SUIT_SYM[d.card.suit]).join(', ')}. ${top[0].player.name} wins the cut.`);
     }
-    this.awaitingTrumpCall = true;
   }
 
+  // Called once the caller has seen their newly-dealt hand and picked a suit.
   chooseNextTrump(suit){
+    this.trumpSuit = suit;
     this.awaitingTrumpCall = false;
-    this.startRound(suit);
+    this.log.push(`${this.getPlayer(this.trumpCallerId).name} calls ${SUIT_SYM[suit]} as trumps.`);
   }
 }
 
@@ -5681,7 +5702,6 @@ function renderTrumpsRulesPanel(){
 }
 
 function humanPlayersTrumps(){ return game.players.filter(p=>!p.isBot); }
-let trumpsAwaitingSuitChoiceUI = false;
 
 function sortTrumpsHand(hand){
   const suitOrder = {S:0,H:1,D:2,C:3};
@@ -5719,9 +5739,12 @@ function trumpsBotChoosePlay(bot, g){
   return sorted[0];
 }
 
-function trumpsBotChooseTrump(){
-  const suits = ['S','H','D','C'];
-  return suits[Math.floor(Math.random()*suits.length)];
+function trumpsBotChooseTrump(bot){
+  const counts = {S:0,H:0,D:0,C:0};
+  bot.hand.forEach(c=>{ counts[c.suit]++; });
+  let best = 'S', bestCount = -1;
+  SUITS.forEach(s=>{ if(counts[s]>bestCount){ bestCount=counts[s]; best=s; } });
+  return best;
 }
 
 function renderTrumpsScreen(){
@@ -5731,7 +5754,9 @@ function renderTrumpsScreen(){
 
   const cp = game.currentPlayer();
   const multiHuman = humanPlayersTrumps().length > 1;
-  const needsShield = !game.roundComplete && multiHuman && !cp.isBot && revealedForId !== cp.id;
+  const inTrumpCallPhase = game.awaitingTrumpCall && !game.roundComplete;
+  const personToShow = inTrumpCallPhase ? game.getPlayer(game.trumpCallerId) : cp;
+  const needsShield = !game.roundComplete && multiHuman && !personToShow.isBot && revealedForId !== personToShow.id;
 
   el.innerHTML = `
     <div class="topbar">
@@ -5771,7 +5796,7 @@ function renderTrumpsScreen(){
   game.activePlayers().filter(p=>p.id!==(multiHuman?null:humanPlayersTrumps()[0]?.id)).forEach(p=>{
     if(!multiHuman && !p.isBot) return;
     const div = document.createElement('div');
-    div.className = 'opponent' + (p.id===cp.id && !game.roundComplete ? ' active-turn' : '');
+    div.className = 'opponent' + (p.id===cp.id && !game.roundComplete && !inTrumpCallPhase ? ' active-turn' : '');
     div.innerHTML = `
       ${p.id===game.dealerId ? '<div class="dealer-chip">D</div>' : ''}
       <div class="name">${p.name}${p.isBot?' 🤖':''}</div>
@@ -5781,33 +5806,73 @@ function renderTrumpsScreen(){
     oppRow.appendChild(div);
   });
 
-  el.querySelector('.trump-indicator').innerHTML = `Trumps: <span class="trump-suit-symbol" style="color:${SUIT_RED[game.trumpSuit]?'var(--red)':'var(--cream)'};">${SUIT_SYM[game.trumpSuit]}</span>`;
+  el.querySelector('.trump-indicator').innerHTML = inTrumpCallPhase
+    ? `Waiting for ${game.getPlayer(game.trumpCallerId).name} to call trumps…`
+    : `Trumps: <span class="trump-suit-symbol" style="color:${SUIT_RED[game.trumpSuit]?'var(--red)':'var(--cream)'};">${SUIT_SYM[game.trumpSuit]}</span>`;
 
   const trickArea = el.querySelector('.trick-area');
-  game.roundOrder.forEach(id=>{
-    const p = game.getPlayer(id);
-    const entry = game.trick.find(t=>t.playerId===id);
-    const slot = document.createElement('div');
-    slot.className = 'trick-slot';
-    if(entry){
-      slot.appendChild(makeCardEl(entry.card, 'normal'));
-    } else {
-      const empty = document.createElement('div');
-      empty.className = 'trick-slot-empty';
-      slot.appendChild(empty);
-    }
-    const label = document.createElement('div');
-    label.className = 'trick-slot-name';
-    label.textContent = p.name;
-    slot.appendChild(label);
-    trickArea.appendChild(slot);
-  });
+  if(!inTrumpCallPhase){
+    game.roundOrder.forEach(id=>{
+      const p = game.getPlayer(id);
+      const entry = game.trick.find(t=>t.playerId===id);
+      const slot = document.createElement('div');
+      slot.className = 'trick-slot';
+      if(entry){
+        slot.appendChild(makeCardEl(entry.card, 'normal'));
+      } else {
+        const empty = document.createElement('div');
+        empty.className = 'trick-slot-empty';
+        slot.appendChild(empty);
+      }
+      const label = document.createElement('div');
+      label.className = 'trick-slot-name';
+      label.textContent = p.name;
+      slot.appendChild(label);
+      trickArea.appendChild(slot);
+    });
+  }
 
-  const displayPlayer = multiHuman ? (needsShield ? null : cp) : humanPlayersTrumps()[0];
+  const displayPlayer = multiHuman ? (needsShield ? null : personToShow) : humanPlayersTrumps()[0];
   const handFan = el.querySelector('.hand-fan');
   const actionRow = el.querySelector('.action-row');
 
-  if(displayPlayer && !game.roundComplete){
+  if(displayPlayer && inTrumpCallPhase){
+    // Caller's hand is already dealt — show it fully so they can call based on what they're holding.
+    sortTrumpsHand(displayPlayer.hand).forEach(card=>{
+      const wrap = document.createElement('div');
+      wrap.className = 'hand-card-wrap';
+      wrap.appendChild(makeCardEl(card, 'normal'));
+      handFan.appendChild(wrap);
+    });
+    if(displayPlayer.id===game.trumpCallerId && !displayPlayer.isBot){
+      const prompt = document.createElement('div');
+      prompt.style.cssText = 'text-align:center;font-size:13px;color:#cfe4da;opacity:.85;margin-bottom:10px;';
+      prompt.textContent = 'Call the trump suit for this round:';
+      actionRow.appendChild(prompt);
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:12px;justify-content:center;';
+      SUITS.forEach(suit=>{
+        const btn = document.createElement('button');
+        btn.className = 'suit-choice-btn';
+        btn.style.cssText = 'font-size:30px;width:58px;height:58px;border-radius:12px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);cursor:pointer;';
+        btn.style.color = SUIT_RED[suit] ? 'var(--red)' : 'var(--cream)';
+        btn.textContent = SUIT_SYM[suit];
+        btn.addEventListener('click', ()=>{
+          sfxSelect();
+          game.chooseNextTrump(suit);
+          render();
+          maybeRunTrumpsBotTurn();
+        });
+        row.appendChild(btn);
+      });
+      actionRow.appendChild(row);
+    } else {
+      const waiting = document.createElement('div');
+      waiting.style.cssText = 'font-size:13px;color:#cfe4da;opacity:.7;';
+      waiting.textContent = `Waiting for ${game.getPlayer(game.trumpCallerId).name} to call trumps…`;
+      actionRow.appendChild(waiting);
+    }
+  } else if(displayPlayer && !game.roundComplete){
     const isMyTurn = displayPlayer.id === cp.id && !displayPlayer.isBot;
     const valid = isMyTurn ? game.validPlaysFor(displayPlayer).map(c=>c.id) : [];
 
@@ -5830,20 +5895,13 @@ function renderTrumpsScreen(){
       waiting.textContent = `Waiting for ${cp.name}…`;
       actionRow.appendChild(waiting);
     }
-  } else if(displayPlayer && game.roundComplete){
-    sortTrumpsHand(displayPlayer.hand).forEach(card=>{
-      const wrap = document.createElement('div');
-      wrap.className = 'hand-card-wrap dim';
-      wrap.appendChild(makeCardEl(card, 'normal'));
-      handFan.appendChild(wrap);
-    });
   }
 
   const scoreList = el.querySelector('.score-list');
   game.players.forEach(p=>{
     const item = document.createElement('div');
-    item.className = 'score-item' + (!p.isBot?' you':'') + (p.eliminated?' trumps-eliminated':'') + (p.id===cp.id && !p.eliminated && !game.roundComplete?' active-turn-score':'');
-    if(p.id===cp.id && !p.eliminated && !game.roundComplete) item.style.outline = '1px solid var(--gold)';
+    item.className = 'score-item' + (!p.isBot?' you':'') + (p.eliminated?' trumps-eliminated':'') + (p.id===cp.id && !p.eliminated && !game.roundComplete && !inTrumpCallPhase?' active-turn-score':'');
+    if(p.id===cp.id && !p.eliminated && !game.roundComplete && !inTrumpCallPhase) item.style.outline = '1px solid var(--gold)';
     item.innerHTML = `<span>${p.name}${p.isBot?' 🤖':''}${p.eliminated?' (out)':''}</span><span>${p.eliminated?'':p.tricksWon+' trick'+(p.tricksWon!==1?'s':'')}</span>`;
     scoreList.appendChild(item);
   });
@@ -5859,21 +5917,17 @@ function renderTrumpsScreen(){
     const shield = document.createElement('div');
     shield.className = 'privacy-shield';
     shield.innerHTML = `
-      <div class="display">Pass the device to ${cp.name}</div>
+      <div class="display">Pass the device to ${personToShow.name}</div>
       <div style="opacity:.75;font-size:13px;">Everyone else, look away.</div>
-      <button class="primary-btn" style="width:auto;padding:12px 26px;">I'm ${cp.name} — reveal my hand</button>
+      <button class="primary-btn" style="width:auto;padding:12px 26px;">I'm ${personToShow.name} — reveal my hand</button>
     `;
-    shield.querySelector('button').addEventListener('click', ()=>{ revealedForId = cp.id; render(); });
+    shield.querySelector('button').addEventListener('click', ()=>{ revealedForId = personToShow.id; render(); });
     el.querySelector('.table-main').style.position='relative';
     el.querySelector('.table-main').appendChild(shield);
   }
 
   if(game.roundComplete && !game.gameOver){
-    if(game.awaitingTrumpCall && trumpsAwaitingSuitChoiceUI){
-      el.appendChild(renderTrumpsSuitChoiceModal());
-    } else {
-      el.appendChild(renderTrumpsRoundCompleteModal());
-    }
+    el.appendChild(renderTrumpsRoundCompleteModal());
   }
 
   setupSidePanelToggle(el);
@@ -5903,50 +5957,24 @@ function renderTrumpsRoundCompleteModal(){
 }
 
 function proceedAfterTrumpsRound(){
-  const caller = game.getPlayer(game.trumpCallerId);
-  if(caller.isBot){
-    game.chooseNextTrump(trumpsBotChooseTrump());
-    trumpsAwaitingSuitChoiceUI = false;
-    const multiHuman = humanPlayersTrumps().length>1;
-    revealedForId = multiHuman ? null : (humanPlayersTrumps()[0]?.id || null);
-    render();
-    maybeRunTrumpsBotTurn();
-  } else {
-    trumpsAwaitingSuitChoiceUI = true;
-    render();
-  }
-}
-
-function renderTrumpsSuitChoiceModal(){
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
-  const caller = game.getPlayer(game.trumpCallerId);
-  overlay.innerHTML = `
-    <div class="modal-box" style="max-width:420px;text-align:center;">
-      <h2 class="display">${caller.name}, call trumps</h2>
-      <p style="font-size:13px;color:#cfe4da;opacity:.85;margin-bottom:18px;">Pick the trump suit for round ${game.roundNum+1}.</p>
-      <div class="suit-choice-row" style="display:flex;gap:14px;justify-content:center;"></div>
-    </div>
-  `;
-  const row = overlay.querySelector('.suit-choice-row');
-  SUITS.forEach(suit=>{
-    const btn = document.createElement('button');
-    btn.className = 'suit-choice-btn';
-    btn.style.cssText = 'font-size:34px;width:64px;height:64px;border-radius:12px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);cursor:pointer;';
-    btn.style.color = SUIT_RED[suit] ? 'var(--red)' : 'var(--cream)';
-    btn.textContent = SUIT_SYM[suit];
-    btn.addEventListener('click', ()=>{
-      sfxSelect();
-      game.chooseNextTrump(suit);
-      trumpsAwaitingSuitChoiceUI = false;
-      const multiHuman = humanPlayersTrumps().length>1;
+  game.startRound(); // deals the new round's hands; sets awaitingTrumpCall if round > 1
+  const multiHuman = humanPlayersTrumps().length>1;
+  if(game.awaitingTrumpCall){
+    const caller = game.getPlayer(game.trumpCallerId);
+    if(caller.isBot){
+      game.chooseNextTrump(trumpsBotChooseTrump(caller));
       revealedForId = multiHuman ? null : (humanPlayersTrumps()[0]?.id || null);
       render();
       maybeRunTrumpsBotTurn();
-    });
-    row.appendChild(btn);
-  });
-  return overlay;
+    } else {
+      revealedForId = multiHuman ? null : caller.id;
+      render();
+    }
+  } else {
+    revealedForId = multiHuman ? null : (humanPlayersTrumps()[0]?.id || null);
+    render();
+    maybeRunTrumpsBotTurn();
+  }
 }
 
 function renderTrumpsGameOver(el){
@@ -5997,25 +6025,38 @@ function renderTrumpsGameOver(el){
 }
 
 function onTrumpsPlayCard(playerId, cardId){
-  if(uiLock) return;
+  if(uiLock || game.awaitingTrumpCall) return;
   let result;
   try{ result = game.playCard(playerId, cardId); } catch(e){ return; }
   sfxCardPlay();
-  if(result.trickWon){
+  handleTrumpsPlayResult(result);
+}
+
+function handleTrumpsPlayResult(result){
+  if(result.trickComplete){
     const winner = game.getPlayer(result.trickWinnerId);
-    if(!winner.isBot || humanPlayersTrumps().length>1) showToast(`${winner.name} wins the trick!`);
+    showToast(`${winner.name} wins the trick!`);
+    uiLock = true;
+    render(); // shows the completed trick, all cards still laid out
+    setTimeout(()=>{
+      game.finishTrickAndAdvance();
+      uiLock = false;
+      if(game.gameOver) sfxWin();
+      afterTrumpsAction();
+    }, 1800);
+  } else {
+    uiLock = false;
+    afterTrumpsAction();
   }
-  if(game.gameOver) sfxWin();
-  afterTrumpsAction();
 }
 
 function afterTrumpsAction(){
   render();
-  if(!game.roundComplete) maybeRunTrumpsBotTurn();
+  if(!game.roundComplete && !game.trickComplete) maybeRunTrumpsBotTurn();
 }
 
 function maybeRunTrumpsBotTurn(){
-  if(!game || game.gameOver || game.roundComplete) return;
+  if(!game || game.gameOver || game.roundComplete || game.trickComplete || game.awaitingTrumpCall) return;
   const cp = game.currentPlayer();
   if(!cp.isBot) return;
   uiLock = true;
@@ -6024,19 +6065,13 @@ function maybeRunTrumpsBotTurn(){
 }
 
 function runTrumpsBotTurn(bot){
-  if(!game || game.gameOver || game.roundComplete){ uiLock=false; if(game) render(); return; }
+  if(!game || game.gameOver || game.roundComplete || game.trickComplete || game.awaitingTrumpCall){ uiLock=false; if(game) render(); return; }
   if(game.currentPlayer().id !== bot.id){ uiLock=false; return; }
   const card = trumpsBotChoosePlay(bot, game);
   let result;
   try{ result = game.playCard(bot.id, card.id); } catch(e){ uiLock=false; return; }
   sfxCardPlay();
-  if(result.trickWon){
-    const winner = game.getPlayer(result.trickWinnerId);
-    showToast(`${winner.name} wins the trick!`);
-  }
-  if(game.gameOver) sfxWin();
-  uiLock=false;
-  afterTrumpsAction();
+  handleTrumpsPlayResult(result);
 }
 
 render();
