@@ -1176,15 +1176,23 @@ class TrumpsGame{
       this.trumpCallerId = contenders[0].id;
       this.log.push(`${contenders[0].name} calls next round's trumps.`);
     } else {
+      // Order the tied players starting from the dealer, going clockwise around the table.
+      const dealerPos = this.seatOrder.indexOf(this.dealerId);
+      const orderedContenders = [];
+      for(let i=0;i<this.seatOrder.length;i++){
+        const seatId = this.seatOrder[(dealerPos+i)%this.seatOrder.length];
+        const c = contenders.find(p=>p.id===seatId);
+        if(c) orderedContenders.push(c);
+      }
       let deck, draws, top;
       do{
         deck = shuffle(createDeck());
-        draws = contenders.map(p=>({player:p, card: deck.pop()}));
+        draws = orderedContenders.map(p=>({player:p, card: deck.pop()}));
         const maxRank = Math.max(...draws.map(d=>RANKS.indexOf(d.card.rank)));
         top = draws.filter(d=>RANKS.indexOf(d.card.rank)===maxRank);
       } while(top.length>1);
       this.trumpCallerId = top[0].player.id;
-      this.log.push(`Tie for most tricks — cutting the deck: ${draws.map(d=>d.player.name+' drew '+d.card.rank+SUIT_SYM[d.card.suit]).join(', ')}. ${top[0].player.name} wins the cut.`);
+      this.log.push(`Tie for most tricks — cutting the deck (starting with the dealer, clockwise): ${draws.map(d=>d.player.name+' drew '+d.card.rank+SUIT_SYM[d.card.suit]).join(', ')}. ${top[0].player.name} wins the cut.`);
     }
   }
 
