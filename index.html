@@ -1303,35 +1303,70 @@ function numbersScoreForDiff(diff){
   if(diff<=10) return 5;
   return 0;
 }
+function numbersStepsHTML(steps){
+  if(!steps || steps.length===0) return '';
+  return steps.map(s=>`<div>${s}</div>`).join('');
+}
+// The search explores many combinations along one path before landing on the best value, which
+// can leave irrelevant earlier operations in the trail (e.g. a stray "5+5=10" that was never
+// actually used to reach the final answer). Trace dependencies backward from the final value and
+// drop any step whose result was never needed.
+function pruneNumbersSteps(steps, finalValue){
+  if(!steps || steps.length===0) return steps || [];
+  const parsed = steps.map(s=>{
+    const m = s.match(/^(.+?) ([+\-×÷]) (.+?) = (.+)$/);
+    return m ? {left:m[1], right:m[3], result:m[4], raw:s} : {raw:s};
+  });
+  const needed = new Set([String(finalValue)]);
+  const kept = [];
+  for(let i=parsed.length-1;i>=0;i--){
+    const p = parsed[i];
+    if(p.result!==undefined && needed.has(p.result)){
+      kept.unshift(p.raw);
+      needed.add(p.left);
+      needed.add(p.right);
+    }
+  }
+  return kept;
+}
 
 // Exhaustive search for the closest achievable value to target using the given numbers.
 // Each number may be used at most once; +,-,x,/ only, no negative or fractional intermediates.
 function solveCountdownNumbers(values, target){
-  let best = { value: null, diff: Infinity, expr: null };
-  function consider(value, expr){
+  let best = { value: null, diff: Infinity, steps: [] };
+  function consider(value, steps){
     const diff = Math.abs(value - target);
-    if(diff < best.diff || (diff===best.diff && best.value===null)){ best = {value, diff, expr}; }
+    if(diff < best.diff || (diff===best.diff && best.value===null)){ best = {value, diff, steps: steps.slice()}; }
   }
-  function recurse(nums, exprs){
-    nums.forEach((v,i)=> consider(v, exprs[i]));
+  function recurse(nums, labels, steps){
+    nums.forEach((v,i)=> consider(v, steps));
     if(nums.length<2) return;
     for(let i=0;i<nums.length;i++){
       for(let j=0;j<nums.length;j++){
         if(i===j) continue;
         const a=nums[i], b=nums[j];
-        const ea=exprs[i], eb=exprs[j];
-        const rest=[], restExprs=[];
-        for(let k=0;k<nums.length;k++){ if(k!==i && k!==j){ rest.push(nums[k]); restExprs.push(exprs[k]); } }
+        const la=labels[i], lb=labels[j];
+        const rest=[], restLabels=[];
+        for(let k=0;k<nums.length;k++){ if(k!==i && k!==j){ rest.push(nums[k]); restLabels.push(labels[k]); } }
         if(i<j){
-          recurse([...rest, a+b], [...restExprs, `(${ea}+${eb})`]);
-          recurse([...rest, a*b], [...restExprs, `(${ea}×${eb})`]);
+          const sum = a+b;
+          recurse([...rest, sum], [...restLabels, String(sum)], [...steps, `${la} + ${lb} = ${sum}`]);
+          const prod = a*b;
+          recurse([...rest, prod], [...restLabels, String(prod)], [...steps, `${la} × ${lb} = ${prod}`]);
         }
-        if(a-b>0) recurse([...rest, a-b], [...restExprs, `(${ea}-${eb})`]);
-        if(b>0 && a%b===0) recurse([...rest, a/b], [...restExprs, `(${ea}÷${eb})`]);
+        if(a-b>0){
+          const dif = a-b;
+          recurse([...rest, dif], [...restLabels, String(dif)], [...steps, `${la} - ${lb} = ${dif}`]);
+        }
+        if(b>0 && a%b===0){
+          const quot = a/b;
+          recurse([...rest, quot], [...restLabels, String(quot)], [...steps, `${la} ÷ ${lb} = ${quot}`]);
+        }
       }
     }
   }
-  recurse(values.map(v=>v), values.map(v=>String(v)));
+  recurse(values.map(v=>v), values.map(v=>String(v)), []);
+  best.steps = pruneNumbersSteps(best.steps, best.value);
   return best;
 }
 
@@ -1403,7 +1438,7 @@ class CountdownNumbersGame{
       player.lastRoundExpr = expr;
       player.lastRoundPoints = points;
       player.score += points;
-      this.log.push(`${player.name} reached ${value}${expr?` (${expr})`:''} — ${points} point${points!==1?'s':''}.`);
+      this.log.push(`${player.name} reached ${value} — ${points} point${points!==1?'s':''}.`);
     }
     this.solveIndex++;
     if(this.solveIndex >= this.solveOrder.length){
@@ -1483,7 +1518,7 @@ function onlineNumbersSubmit(g, playerId, value, expr){
   if(g.submissions[playerId] !== undefined) return; // already submitted
   g.submissions[playerId] = {value, expr};
   const player = g.players.find(p=>p.id===playerId);
-  g.log.push(value===null ? `${player.name} didn't reach a number.` : `${player.name} reached ${value}${expr?` (${expr})`:''}.`);
+  g.log.push(value===null ? `${player.name} didn't reach a number.` : `${player.name} reached ${value}.`);
   if(value!==null && value===g.target && !g.roundEndedEarly){
     g.roundEndedEarly = true;
     g.earlyWinnerId = playerId;
@@ -6829,9 +6864,9 @@ function onNumbersSubmit(){
   stopNumbersTimer();
   const lastTok = numbersCalc && numbersCalc.lastResultId ? numbersCalc.pool.find(t=>t.id===numbersCalc.lastResultId) : null;
   const value = lastTok ? lastTok.value : null;
-  const expr = numbersCalc && numbersCalc.history.length ? numbersCalc.history[numbersCalc.history.length-1] : null;
+  const steps = numbersCalc ? pruneNumbersSteps(numbersCalc.history, value) : [];
   const solver = game.currentSolver();
-  game.submitAnswer(solver.id, value, expr);
+  game.submitAnswer(solver.id, value, steps);
   numbersCalc = null;
   numbersTurnStarted = false;
   render();
@@ -6849,7 +6884,7 @@ function renderNumbersRevealScreen(el){
       <div style="font-size:13px;color:#cfe4da;opacity:.85;">Numbers: ${game.numbers.map(n=>n.value).join(', ')}</div>
     </div>
     <div class="numbers-reveal-list" style="max-width:420px;margin:18px auto;"></div>
-    ${game.bestPossible ? `<p style="text-align:center;font-size:13px;color:#cfe4da;opacity:.85;margin-top:10px;">Best possible: <strong style="color:var(--gold-bright);">${game.bestPossible.value}</strong>${game.bestPossible.expr?` (${game.bestPossible.expr})`:''}</p>` : ''}
+    ${game.bestPossible ? `<div style="text-align:center;font-size:13px;color:#cfe4da;opacity:.85;margin-top:10px;"><div>Best possible: <strong style="color:var(--gold-bright);">${game.bestPossible.value}</strong></div><div style="margin-top:4px;font-size:12px;opacity:.85;">${numbersStepsHTML(game.bestPossible.steps)}</div></div>` : ''}
     <div style="text-align:center;margin-top:20px;"><button class="primary-btn" id="nextRoundBtn" style="width:auto;padding:14px 26px;">Next round</button></div>
   `;
   main.appendChild(wrap);
@@ -6857,7 +6892,8 @@ function renderNumbersRevealScreen(el){
   [...game.players].sort((a,b)=>(b.lastRoundPoints||0)-(a.lastRoundPoints||0)).forEach(p=>{
     const row = document.createElement('div');
     row.className = 'numbers-reveal-row';
-    const valueText = p.lastRoundValue!==null ? `${p.lastRoundValue}${p.lastRoundExpr?` (${p.lastRoundExpr})`:''}` : 'No answer';
+    const stepsHTML = p.lastRoundExpr && p.lastRoundExpr.length ? `<div style="font-size:11px;opacity:.75;margin-top:2px;">${numbersStepsHTML(p.lastRoundExpr)}</div>` : '';
+    const valueText = p.lastRoundValue!==null ? `<div>${p.lastRoundValue}</div>${stepsHTML}` : 'No answer';
     row.innerHTML = `
       <span>${p.name}${p.isBot?' 🤖':''}</span>
       <span style="flex:1;text-align:center;font-size:12px;color:#cfe4da;opacity:.85;">${valueText}</span>
@@ -6936,7 +6972,7 @@ function maybeRunNumbersBotStep(){
     setTimeout(()=>{
       if(!game || game.phase!=='solving') return;
       const best = solveCountdownNumbers(game.numbers.map(n=>n.value), game.target);
-      game.submitAnswer(solver.id, best.value===game.target||best.value!==null ? best.value : null, best.expr);
+      game.submitAnswer(solver.id, best.value===game.target||best.value!==null ? best.value : null, best.steps);
       numbersCalc = null;
       render();
       maybeRunNumbersBotStep();
@@ -7148,12 +7184,12 @@ async function onlineNumbersSubmitAnswer(){
   if(!onlineRoomState || !onlineRoomState.game) return;
   stopNumbersTimer();
   const value = numbersCalc && numbersCalc.lastResultId ? numbersCalc.pool.find(t=>t.id===numbersCalc.lastResultId).value : null;
-  const expr = numbersCalc && numbersCalc.history.length ? numbersCalc.history[numbersCalc.history.length-1] : null;
+  const steps = numbersCalc ? pruneNumbersSteps(numbersCalc.history, value) : [];
   await refreshOnlineRoomState();
   const g = onlineRoomState.game;
   const me = g.players.find(p=>p.deviceId===myDeviceId);
   if(!me || g.submissions[me.id]!==undefined){ render(); return; }
-  onlineNumbersSubmit(g, me.id, value, expr);
+  onlineNumbersSubmit(g, me.id, value, steps);
   if(value!==null && value===g.target) sfxWin();
   numbersCalc = null;
   await writeNumbersOnlineState(g);
@@ -7440,7 +7476,7 @@ function renderNumbersOnlineReveal(el, g){
       <div style="font-size:13px;color:#cfe4da;opacity:.85;">Numbers: ${g.numbers.map(n=>n.value).join(', ')}</div>
     </div>
     <div class="numbers-reveal-list" style="max-width:420px;margin:18px auto;"></div>
-    ${g.bestPossible ? `<p style="text-align:center;font-size:13px;color:#cfe4da;opacity:.85;margin-top:10px;">Best possible: <strong style="color:var(--gold-bright);">${g.bestPossible.value}</strong>${g.bestPossible.expr?` (${g.bestPossible.expr})`:''}</p>` : ''}
+    ${g.bestPossible ? `<div style="text-align:center;font-size:13px;color:#cfe4da;opacity:.85;margin-top:10px;"><div>Best possible: <strong style="color:var(--gold-bright);">${g.bestPossible.value}</strong></div><div style="margin-top:4px;font-size:12px;opacity:.85;">${numbersStepsHTML(g.bestPossible.steps)}</div></div>` : ''}
     <div style="text-align:center;margin-top:20px;">${onlineIsHost ? '<button class="primary-btn" id="nextRoundBtn" style="width:auto;padding:14px 26px;">Next round</button>' : '<p style="font-size:13px;color:#cfe4da;opacity:.75;">Waiting for the host to continue…</p>'}</div>
   `;
   main.appendChild(wrap);
@@ -7448,7 +7484,8 @@ function renderNumbersOnlineReveal(el, g){
   [...g.players].sort((a,b)=>(b.lastRoundPoints||0)-(a.lastRoundPoints||0)).forEach(p=>{
     const row = document.createElement('div');
     row.className = 'numbers-reveal-row';
-    const valueText = p.lastRoundValue!==null ? `${p.lastRoundValue}${p.lastRoundExpr?` (${p.lastRoundExpr})`:''}` : 'No answer';
+    const stepsHTML = p.lastRoundExpr && p.lastRoundExpr.length ? `<div style="font-size:11px;opacity:.75;margin-top:2px;">${numbersStepsHTML(p.lastRoundExpr)}</div>` : '';
+    const valueText = p.lastRoundValue!==null ? `<div>${p.lastRoundValue}</div>${stepsHTML}` : 'No answer';
     row.innerHTML = `
       <span>${p.name}${p.deviceId===myDeviceId?' (you)':''}</span>
       <span style="flex:1;text-align:center;font-size:12px;color:#cfe4da;opacity:.85;">${valueText}</span>
