@@ -6559,6 +6559,7 @@ function renderNumbersPickingScreen(el){
       btn.addEventListener('click', ()=>{
         sfxSelect();
         game.chooseNumbers(n);
+        stopNumbersTimer();
         startNumbersCalc();
         numbersTurnStarted = false;
         render();
@@ -6580,7 +6581,7 @@ function renderNumbersSolvingScreen(el){
   const solver = game.currentSolver();
   const multiHuman = humanPlayersNumbers().length>1;
 
-  if(!numbersCalc){ startNumbersCalc(); }
+  if(!numbersCalc){ stopNumbersTimer(); startNumbersCalc(); }
 
   if(solver.isBot){
     const wrap = document.createElement('div');
@@ -6676,8 +6677,10 @@ function renderNumbersSolvingScreen(el){
 
   wrap.querySelector('#numbersResetBtn').addEventListener('click', ()=>{
     const timeLeft = numbersCalc.timeLeft;
+    stopNumbersTimer();
     startNumbersCalc();
     numbersCalc.timeLeft = timeLeft; // resetting the pool shouldn't grant extra time
+    startNumbersTimer();
     render();
   });
   wrap.querySelector('#numbersSubmitBtn').addEventListener('click', ()=> onNumbersSubmit());
@@ -6816,6 +6819,7 @@ function maybeRunNumbersBotStep(){
       if(!game || game.phase!=='picking') return;
       const n = Math.floor(Math.random()*5); // 0-4
       game.chooseNumbers(n);
+      stopNumbersTimer();
       startNumbersCalc();
       numbersTurnStarted = false;
       render();
