@@ -351,6 +351,41 @@
   }
   .trumps-eliminated{opacity:.45;text-decoration:line-through;}
 
+  /* numbers */
+  .numbers-target{
+    text-align:center;font-size:15px;color:#cfe4da;margin:6px 0 4px;
+  }
+  .numbers-target .target-value{font-family:'Fraunces',serif;font-size:44px;color:var(--gold-bright);font-weight:700;display:block;line-height:1.1;}
+  .numbers-timer{text-align:center;font-size:28px;font-family:'Fraunces',serif;font-weight:700;color:var(--gold-bright);margin:8px 0;}
+  .numbers-timer.low{color:var(--red);}
+  .numbers-pool{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:16px 0;}
+  .numbers-token{
+    min-width:58px;height:58px;padding:0 10px;border-radius:12px;background:rgba(255,255,255,.08);
+    border:2px solid rgba(255,255,255,.18);color:var(--cream);font-family:'Fraunces',serif;font-size:20px;font-weight:700;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform .1s ease, border-color .1s ease;
+  }
+  .numbers-token.selected{border-color:var(--gold-bright);background:rgba(230,178,88,.18);transform:translateY(-4px);}
+  .numbers-token.result{border-color:var(--gold);}
+  .numbers-op-row{display:flex;gap:10px;justify-content:center;margin:10px 0;}
+  .numbers-op-btn{
+    width:52px;height:52px;border-radius:12px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);
+    color:var(--cream);font-size:22px;cursor:pointer;
+  }
+  .numbers-op-btn:disabled{opacity:.3;cursor:not-allowed;}
+  .numbers-history{max-width:420px;margin:10px auto;font-size:12px;color:#cfe4da;opacity:.75;text-align:center;line-height:1.7;}
+  .numbers-current-value{text-align:center;font-size:15px;color:#cfe4da;margin:8px 0;}
+  .numbers-current-value .val{color:var(--gold-bright);font-weight:700;font-size:22px;}
+  .numbers-large-choice{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:16px;}
+  .numbers-large-btn{
+    padding:14px 20px;border-radius:12px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);
+    color:var(--cream);font-size:14px;cursor:pointer;min-width:110px;
+  }
+  .numbers-large-btn .n{display:block;font-family:'Fraunces',serif;font-size:26px;color:var(--gold-bright);font-weight:700;}
+  .numbers-reveal-row{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.08);}
+  .numbers-reveal-row:last-child{border-bottom:none;}
+  .numbers-points-pill{background:var(--gold);color:#1c1c1c;font-weight:700;font-size:12px;padding:3px 10px;border-radius:20px;}
+  .numbers-points-pill.zero{background:rgba(255,255,255,.15);color:#cfe4da;}
+
   /* toast */
   .toast-banner{
     position:fixed;top:18px;left:50%;transform:translateX(-50%) translateY(-16px);
@@ -1247,6 +1282,149 @@ class TrumpsGame{
   }
 }
 
+/* ======================= NUMBERS (Countdown) ENGINE ======================= */
+const NUMBERS_LARGE = [25, 50, 75, 100];
+const NUMBERS_SMALL = [1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10];
+
+function drawNumbersSet(largeCount, smallCount){
+  const largePool = shuffle([...NUMBERS_LARGE]);
+  const smallPool = shuffle([...NUMBERS_SMALL]);
+  const chosen = [...largePool.slice(0, largeCount), ...smallPool.slice(0, smallCount)];
+  return shuffle(chosen).map((v, i)=>({id:'n'+i+'_'+Math.random().toString(36).slice(2,7), value:v}));
+}
+
+function randomTarget(){
+  return 100 + Math.floor(Math.random()*900); // 100-999
+}
+
+function numbersScoreForDiff(diff){
+  if(diff===0) return 10;
+  if(diff<=5) return 7;
+  if(diff<=10) return 5;
+  return 0;
+}
+
+// Exhaustive search for the closest achievable value to target using the given numbers.
+// Each number may be used at most once; +,-,x,/ only, no negative or fractional intermediates.
+function solveCountdownNumbers(values, target){
+  let best = { value: null, diff: Infinity, expr: null };
+  function consider(value, expr){
+    const diff = Math.abs(value - target);
+    if(diff < best.diff || (diff===best.diff && best.value===null)){ best = {value, diff, expr}; }
+  }
+  function recurse(nums, exprs){
+    nums.forEach((v,i)=> consider(v, exprs[i]));
+    if(nums.length<2) return;
+    for(let i=0;i<nums.length;i++){
+      for(let j=0;j<nums.length;j++){
+        if(i===j) continue;
+        const a=nums[i], b=nums[j];
+        const ea=exprs[i], eb=exprs[j];
+        const rest=[], restExprs=[];
+        for(let k=0;k<nums.length;k++){ if(k!==i && k!==j){ rest.push(nums[k]); restExprs.push(exprs[k]); } }
+        if(i<j){
+          recurse([...rest, a+b], [...restExprs, `(${ea}+${eb})`]);
+          recurse([...rest, a*b], [...restExprs, `(${ea}×${eb})`]);
+        }
+        if(a-b>0) recurse([...rest, a-b], [...restExprs, `(${ea}-${eb})`]);
+        if(b>0 && a%b===0) recurse([...rest, a/b], [...restExprs, `(${ea}÷${eb})`]);
+      }
+    }
+  }
+  recurse(values.map(v=>v), values.map(v=>String(v)));
+  return best;
+}
+
+class CountdownNumbersGame{
+  constructor(playerDefs){
+    this.players = playerDefs.map(p=>({...p, score:0, lastRoundValue:null, lastRoundExpr:null, lastRoundPoints:null}));
+    this.seatOrder = this.players.map(p=>p.id);
+    this.pickerId = null;
+    this.roundNum = 0;
+    this.numbers = []; // [{id, value}]
+    this.target = null;
+    this.phase = 'picking'; // 'picking' -> 'solving' -> 'reveal'
+    this.solveOrder = [];
+    this.solveIndex = 0;
+    this.log = [];
+    this.gameOver = false;
+    this.winner = null;
+  }
+
+  getPlayer(id){ return this.players.find(p=>p.id===id); }
+  rotatePicker(){
+    if(this.pickerId===null){ this.pickerId = this.seatOrder[Math.floor(Math.random()*this.seatOrder.length)]; return; }
+    const pos = this.seatOrder.indexOf(this.pickerId);
+    this.pickerId = this.seatOrder[(pos+1)%this.seatOrder.length];
+  }
+
+  startRound(){
+    this.roundNum++;
+    this.rotatePicker();
+    this.numbers = [];
+    this.target = null;
+    this.phase = 'picking';
+    this.solveOrder = [];
+    this.solveIndex = 0;
+    this.players.forEach(p=>{ p.lastRoundValue=null; p.lastRoundExpr=null; p.lastRoundPoints=null; });
+    this.log.push(`Round ${this.roundNum} — ${this.getPlayer(this.pickerId).name} picks the numbers.`);
+  }
+
+  // Called once the picker has chosen how many large numbers (0-4) they want.
+  chooseNumbers(largeCount){
+    const large = Math.max(0, Math.min(4, largeCount));
+    const small = 6 - large;
+    this.numbers = drawNumbersSet(large, small);
+    this.target = randomTarget();
+    this.phase = 'solving';
+    const pickerPos = this.seatOrder.indexOf(this.pickerId);
+    this.solveOrder = [];
+    for(let i=0;i<this.seatOrder.length;i++){
+      this.solveOrder.push(this.seatOrder[(pickerPos+i)%this.seatOrder.length]);
+    }
+    this.solveIndex = 0;
+    this.log.push(`Numbers: ${this.numbers.map(n=>n.value).join(', ')}. Target: ${this.target}.`);
+  }
+
+  currentSolver(){ return this.getPlayer(this.solveOrder[this.solveIndex]); }
+
+  // Submit a player's best value+expression for this round (or null if they found nothing).
+  submitAnswer(playerId, value, expr){
+    const player = this.getPlayer(playerId);
+    if(value===null || value===undefined){
+      player.lastRoundValue = null;
+      player.lastRoundExpr = null;
+      player.lastRoundPoints = 0;
+      this.log.push(`${player.name} didn't reach a number.`);
+    } else {
+      const diff = Math.abs(value - this.target);
+      const points = numbersScoreForDiff(diff);
+      player.lastRoundValue = value;
+      player.lastRoundExpr = expr;
+      player.lastRoundPoints = points;
+      player.score += points;
+      this.log.push(`${player.name} reached ${value}${expr?` (${expr})`:''} — ${points} point${points!==1?'s':''}.`);
+    }
+    this.solveIndex++;
+    if(this.solveIndex >= this.solveOrder.length){
+      this.phase = 'reveal';
+      const best = solveCountdownNumbers(this.numbers.map(n=>n.value), this.target);
+      this.bestPossible = best;
+      this.log.push(best.value===this.target
+        ? `The target ${this.target} was reachable exactly.`
+        : `Closest possible was ${best.value} (off by ${best.diff}).`);
+      return {roundOver:true};
+    }
+    return {roundOver:false};
+  }
+
+  endGameNow(){
+    this.gameOver = true;
+    const maxScore = Math.max(...this.players.map(p=>p.score));
+    this.winner = this.players.filter(p=>p.score===maxScore);
+  }
+}
+
 /* ======================= APP / UI ======================= */
 const app = document.getElementById('app');
 let game = null;
@@ -1684,6 +1862,7 @@ const GAMES = [
   {id:'sevens', name:"7's", active:true, icon:'♣7♦', desc:'Every 7 starts a run. Build each suit up and down from there. First to empty their hand wins.'},
   {id:'bonk', name:'BONK', active:true, icon:'💥5️⃣', desc:'Any card goes. Match the last rank played and BONK the player who laid it — do it again and again to escalate.'},
   {id:'trumps', name:'Trumps', active:true, icon:'♠️👑', desc:"Follow suit or trump it. Win no tricks in a round and you're out — last player standing wins."},
+  {id:'numbers', name:'Numbers', active:true, icon:'🔢', desc:'Pick large and small numbers, then get as close as you can to a random target using +, −, ×, ÷.'},
 ];
 
 function render(){
@@ -1718,6 +1897,7 @@ function render(){
   else if(activeGameId==='sevens') app.appendChild(renderSevensScreen());
   else if(activeGameId==='bonk') app.appendChild(renderBonkScreen());
   else if(activeGameId==='trumps') app.appendChild(renderTrumpsScreen());
+  else if(activeGameId==='numbers') app.appendChild(renderNumbersScreen());
   else app.appendChild(renderGame());
 }
 
@@ -1761,7 +1941,7 @@ function renderSetup(){
     ];
   }
   const gameMeta = GAMES.find(g=>g.id===pendingGameId);
-  const seatOptions = pendingGameId==='pairs' ? [2,3,4,5,6] : pendingGameId==='sevens' ? [3,4,5,6] : pendingGameId==='bonk' ? [2,3,4,5,6] : [2,3,4];
+  const seatOptions = pendingGameId==='pairs' ? [2,3,4,5,6] : pendingGameId==='sevens' ? [3,4,5,6] : pendingGameId==='bonk' ? [2,3,4,5,6] : pendingGameId==='numbers' ? [2,3,4,5,6] : [2,3,4];
   let seatCount = Math.max(seatOptions[0], Math.min(seatConfigs._count || seatOptions[0], seatOptions[seatOptions.length-1]));
 
   const el = document.createElement('div');
@@ -1792,6 +1972,7 @@ function renderSetup(){
       : pendingGameId==='sevens' ? renderSevensRulesPanel()
       : pendingGameId==='bonk' ? renderBonkRulesPanel()
       : pendingGameId==='trumps' ? renderTrumpsRulesPanel()
+      : pendingGameId==='numbers' ? renderNumbersRulesPanel()
       : renderRulesPanel();
     tabBody.appendChild(rulesPanel);
     return el;
@@ -1829,8 +2010,10 @@ function renderSetup(){
     ? '2–6 players. Everyone starts with 5 lives. Match the last card played and BONK whoever laid it — last one standing wins.'
     : pendingGameId==='trumps'
     ? "2–4 players. Follow suit if you can, or trump it. Win no tricks in a round and you're out — last one standing wins."
+    : pendingGameId==='numbers'
+    ? '2–6 players. Pick your numbers, then get as close as you can to the target in 30 seconds. Highest score wins.'
     : '2–4 players. Everyone starts with 5 points; you lose points based on the cards left in your hand when a round ends.';
-  const startLabel = pendingGameId==='greedypig' ? 'Start rolling' : pendingGameId==='pairs' ? 'Lay the board' : pendingGameId==='sevens' ? 'Deal everyone in' : pendingGameId==='bonk' ? 'Deal the cards' : pendingGameId==='trumps' ? 'Deal the cards' : 'Deal the cards';
+  const startLabel = pendingGameId==='greedypig' ? 'Start rolling' : pendingGameId==='pairs' ? 'Lay the board' : pendingGameId==='sevens' ? 'Deal everyone in' : pendingGameId==='bonk' ? 'Deal the cards' : pendingGameId==='trumps' ? 'Deal the cards' : pendingGameId==='numbers' ? 'Start the game' : 'Deal the cards';
 
   const setupWrap = document.createElement('div');
   setupWrap.innerHTML = `
@@ -1920,6 +2103,11 @@ function renderSetup(){
       game.startRound();
       activeGameId = 'trumps';
       revealedForId = defs.filter(d=>!d.isBot).length<=1 ? (defs.find(d=>!d.isBot)?.id || null) : null;
+    } else if(pendingGameId==='numbers'){
+      game = new CountdownNumbersGame(defs);
+      game.startRound();
+      activeGameId = 'numbers';
+      revealedForId = defs.filter(d=>!d.isBot).length<=1 ? (defs.find(d=>!d.isBot)?.id || null) : null;
     } else {
       game = new BlackFiveGame(defs);
       game.startRound();
@@ -1933,6 +2121,7 @@ function renderSetup(){
     else if(activeGameId==='sevens') maybeRunSevensBotTurn();
     else if(activeGameId==='bonk') maybeRunBonkBotTurn();
     else if(activeGameId==='trumps') maybeRunTrumpsBotTurn();
+    else if(activeGameId==='numbers') maybeRunNumbersBotStep();
     else maybeRunBotTurn();
   });
 
@@ -6215,6 +6404,435 @@ function runTrumpsBotTurn(bot){
   try{ result = game.playCard(bot.id, card.id); } catch(e){ uiLock=false; return; }
   sfxCardPlay();
   handleTrumpsPlayResult(result);
+}
+
+/* ======================= NUMBERS UI (local) ======================= */
+function renderNumbersRulesPanel(){
+  const wrap = document.createElement('div');
+  wrap.className = 'rules-content';
+  wrap.innerHTML = `
+    <h4>Setup</h4>
+    <p>2–6 players. Each round, one player (rotating clockwise) picks how many large numbers (from 25, 50, 75, 100) they want, from 0 to 4 — the rest are small numbers (1–10, each appearing twice). The six numbers are drawn at random from those pools, then a random 3-digit target between 100 and 999 is set.</p>
+
+    <h4>Solving</h4>
+    <p>Everyone gets the same six numbers and target, one at a time. You have 30 seconds to combine numbers using +, −, ×, ÷ to get as close to the target as possible — tap two numbers then an operator to combine them, and keep going. You don't have to use all six numbers. Results can never go negative or come out as a fraction.</p>
+
+    <h4>Scoring</h4>
+    <ul>
+      <li>Exact target — 10 points</li>
+      <li>Within 5 — 7 points</li>
+      <li>Within 10 — 5 points</li>
+      <li>More than 10 away — 0 points</li>
+    </ul>
+    <p>After everyone's had a turn, the best possible answer is revealed. Scores add up round after round — end the game whenever you like, and whoever has the most points wins.</p>
+  `;
+  return wrap;
+}
+
+function humanPlayersNumbers(){ return game.players.filter(p=>!p.isBot); }
+
+let numbersCalc = null; // {pool:[{id,value,isResult}], selectedId, history:[], lastResultId, timeLeft, timerHandle}
+let numbersTurnStarted = false;
+
+function numbersOpValid(op, a, b){
+  if(op==='+') return true;
+  if(op==='×') return true;
+  if(op==='-') return a!==b; // some order gives a positive result unless they're equal
+  if(op==='÷') return (b>0 && a%b===0) || (a>0 && b%a===0);
+  return false;
+}
+function numbersApplyOp(op, a, b){
+  if(op==='+') return a+b;
+  if(op==='×') return a*b;
+  if(op==='-') return Math.abs(a-b);
+  if(op==='÷') return (b>0 && a%b===0) ? a/b : b/a;
+}
+
+function startNumbersCalc(){
+  numbersCalc = {
+    pool: game.numbers.map(n=>({id:n.id, value:n.value, isResult:false})),
+    selectedId: null,
+    history: [],
+    lastResultId: null,
+    timeLeft: 30,
+    timerHandle: null,
+  };
+}
+
+function stopNumbersTimer(){
+  if(numbersCalc && numbersCalc.timerHandle){ clearInterval(numbersCalc.timerHandle); numbersCalc.timerHandle=null; }
+}
+
+function startNumbersTimer(){
+  stopNumbersTimer();
+  numbersCalc.timerHandle = setInterval(()=>{
+    numbersCalc.timeLeft--;
+    if(numbersCalc.timeLeft<=0){
+      stopNumbersTimer();
+      onNumbersSubmit();
+      return;
+    }
+    render();
+  }, 1000);
+}
+
+function renderNumbersScreen(){
+  const el = document.createElement('div');
+  el.className = 'game-screen';
+  if(game.gameOver) return renderNumbersGameOver(el);
+
+  if(game.phase==='picking') return renderNumbersPickingScreen(el);
+  if(game.phase==='reveal') return renderNumbersRevealScreen(el);
+  return renderNumbersSolvingScreen(el);
+}
+
+function renderNumbersTopbar(el, title){
+  el.innerHTML = `
+    <div class="topbar">
+      <div class="topbar-title">${title}</div>
+      <div class="topbar-actions"><button id="endGameBtn" class="ghost-btn">End game</button><button id="menuBtn">Main menu</button></div>
+    </div>
+    <div class="table-area">
+      <div class="table-main" id="numbersMain" style="overflow-y:auto;"></div>
+      <details class="side-panel">
+        <summary>Players &amp; Table talk</summary>
+        <div class="side-panel-body">
+          <h3>Players</h3>
+          <div class="score-list"></div>
+          <h3>Table talk</h3>
+          <div class="log-feed"></div>
+        </div>
+      </details>
+    </div>
+  `;
+  el.querySelector('#menuBtn').addEventListener('click', ()=>{
+    if(confirm('Leave this game and return to the menu?')){
+      stopNumbersTimer();
+      game=null; activeGameId=null; revealedForId=null; seatConfigs=[]; render();
+    }
+  });
+  el.querySelector('#endGameBtn').addEventListener('click', ()=>{
+    if(confirm('End the game now? Whoever has the most points will be declared the winner.')){
+      stopNumbersTimer();
+      game.endGameNow();
+      sfxWin();
+      render();
+    }
+  });
+  el.querySelector('.topbar-actions').prepend(renderMuteControl());
+
+  const scoreList = el.querySelector('.score-list');
+  [...game.players].sort((a,b)=>b.score-a.score).forEach(p=>{
+    const item = document.createElement('div');
+    item.className = 'score-item' + (!p.isBot?' you':'');
+    item.innerHTML = `<span>${p.name}${p.isBot?' 🤖':''}${p.id===game.pickerId?' 🎯':''}</span><span>${p.score} pt${p.score!==1?'s':''}</span>`;
+    scoreList.appendChild(item);
+  });
+  const logFeed = el.querySelector('.log-feed');
+  [...game.log].slice(-40).reverse().forEach(line=>{
+    const d = document.createElement('div');
+    d.textContent = line;
+    logFeed.appendChild(d);
+  });
+  setupSidePanelToggle(el);
+  return el.querySelector('#numbersMain');
+}
+
+function renderNumbersPickingScreen(el){
+  const main = renderNumbersTopbar(el, `Numbers — Round ${game.roundNum}`);
+  const picker = game.getPlayer(game.pickerId);
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'padding:20px;text-align:center;';
+  wrap.innerHTML = `
+    <div class="menu-eyebrow">${picker.name}'s pick</div>
+    <h2 class="display" style="margin:4px 0 6px;">How many large numbers?</h2>
+    <p style="font-size:13px;color:#cfe4da;opacity:.8;">Large numbers are 25, 50, 75, 100 — the rest will be small numbers (1–10).</p>
+    <div class="numbers-large-choice"></div>
+  `;
+  main.appendChild(wrap);
+  const choiceRow = wrap.querySelector('.numbers-large-choice');
+  if(!picker.isBot){
+    for(let n=0;n<=4;n++){
+      const btn = document.createElement('button');
+      btn.className = 'numbers-large-btn';
+      btn.innerHTML = `<span class="n">${n}</span>large, ${6-n} small`;
+      btn.addEventListener('click', ()=>{
+        sfxSelect();
+        game.chooseNumbers(n);
+        startNumbersCalc();
+        numbersTurnStarted = false;
+        render();
+        maybeRunNumbersBotStep();
+      });
+      choiceRow.appendChild(btn);
+    }
+  } else {
+    const waiting = document.createElement('div');
+    waiting.style.cssText = 'margin-top:16px;font-size:13px;color:#cfe4da;opacity:.75;';
+    waiting.textContent = `${picker.name} is picking…`;
+    choiceRow.appendChild(waiting);
+  }
+  return el;
+}
+
+function renderNumbersSolvingScreen(el){
+  const main = renderNumbersTopbar(el, `Numbers — Round ${game.roundNum}`);
+  const solver = game.currentSolver();
+  const multiHuman = humanPlayersNumbers().length>1;
+
+  if(!numbersCalc){ startNumbersCalc(); }
+
+  if(solver.isBot){
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'padding:30px;text-align:center;';
+    wrap.innerHTML = `
+      <div class="numbers-target">Target<span class="target-value">${game.target}</span></div>
+      <div class="numbers-pool"></div>
+      <p style="font-size:13px;color:#cfe4da;opacity:.75;margin-top:16px;">${solver.name} is working it out…</p>
+    `;
+    const poolRow = wrap.querySelector('.numbers-pool');
+    game.numbers.forEach(n=>{
+      const tok = document.createElement('div');
+      tok.className = 'numbers-token';
+      tok.textContent = n.value;
+      poolRow.appendChild(tok);
+    });
+    main.appendChild(wrap);
+    return el;
+  }
+
+  if(!numbersTurnStarted){
+    const wrap = document.createElement('div');
+    wrap.className = 'privacy-shield';
+    wrap.style.position = 'static';
+    wrap.style.minHeight = '300px';
+    wrap.innerHTML = `
+      <div class="display">${multiHuman ? `Pass the device to ${solver.name}` : `Ready, ${solver.name}?`}</div>
+      <div style="opacity:.75;font-size:13px;">You'll have 30 seconds once you start.</div>
+      <button class="primary-btn" style="width:auto;padding:12px 26px;">Start my 30 seconds</button>
+    `;
+    wrap.querySelector('button').addEventListener('click', ()=>{
+      numbersTurnStarted = true;
+      startNumbersTimer();
+      render();
+    });
+    main.appendChild(wrap);
+    return el;
+  }
+
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'padding:16px;';
+  wrap.innerHTML = `
+    <div class="numbers-timer${numbersCalc.timeLeft<=10?' low':''}">${numbersCalc.timeLeft}s</div>
+    <div class="numbers-target">Target<span class="target-value">${game.target}</span></div>
+    <div class="numbers-pool"></div>
+    <div class="numbers-op-row"></div>
+    <div class="numbers-current-value"></div>
+    <div class="numbers-history"></div>
+    <div style="display:flex;gap:12px;justify-content:center;margin-top:14px;">
+      <button class="ghost-btn" id="numbersResetBtn">Reset</button>
+      <button class="primary-btn" id="numbersSubmitBtn" style="width:auto;padding:12px 26px;margin-top:0;">Submit</button>
+    </div>
+  `;
+  main.appendChild(wrap);
+
+  const poolRow = wrap.querySelector('.numbers-pool');
+  numbersCalc.pool.forEach(tok=>{
+    const el2 = document.createElement('div');
+    el2.className = 'numbers-token' + ((tok.id===numbersCalc.selectedId||tok.id===numbersCalc.secondId)?' selected':'') + (tok.isResult?' result':'');
+    el2.textContent = tok.value;
+    el2.addEventListener('click', ()=> onNumbersTokenClick(tok.id));
+    poolRow.appendChild(el2);
+  });
+
+  const opRow = wrap.querySelector('.numbers-op-row');
+  const tokA = numbersCalc.selectedId ? numbersCalc.pool.find(t=>t.id===numbersCalc.selectedId) : null;
+  const tokB = numbersCalc.secondId ? numbersCalc.pool.find(t=>t.id===numbersCalc.secondId) : null;
+  ['+','-','×','÷'].forEach(op=>{
+    const btn = document.createElement('button');
+    btn.className = 'numbers-op-btn';
+    btn.textContent = op;
+    btn.disabled = !(tokA && tokB && numbersOpValid(op, tokA.value, tokB.value));
+    btn.addEventListener('click', ()=> onNumbersOperatorClick(op));
+    opRow.appendChild(btn);
+  });
+
+  const currentValueEl = wrap.querySelector('.numbers-current-value');
+  const lastTok = numbersCalc.lastResultId ? numbersCalc.pool.find(t=>t.id===numbersCalc.lastResultId) : null;
+  currentValueEl.textContent = lastTok ? 'Current best: ' : (numbersCalc.history.length===0 ? 'Combine two numbers to begin' : '');
+  if(lastTok){
+    const span = document.createElement('span');
+    span.className = 'val';
+    span.textContent = lastTok.value;
+    currentValueEl.appendChild(span);
+  }
+
+  const historyEl = wrap.querySelector('.numbers-history');
+  numbersCalc.history.forEach(line=>{
+    const d = document.createElement('div');
+    d.textContent = line;
+    historyEl.appendChild(d);
+  });
+
+  wrap.querySelector('#numbersResetBtn').addEventListener('click', ()=>{
+    const timeLeft = numbersCalc.timeLeft;
+    startNumbersCalc();
+    numbersCalc.timeLeft = timeLeft; // resetting the pool shouldn't grant extra time
+    render();
+  });
+  wrap.querySelector('#numbersSubmitBtn').addEventListener('click', ()=> onNumbersSubmit());
+
+  return el;
+}
+
+function onNumbersTokenClick(tokenId){
+  if(!numbersCalc) return;
+  if(numbersCalc.selectedId===tokenId){ numbersCalc.selectedId=null; render(); return; }
+  if(numbersCalc.secondId===tokenId){ numbersCalc.secondId=null; render(); return; }
+  if(numbersCalc.selectedId===null){ numbersCalc.selectedId=tokenId; render(); return; }
+  if(numbersCalc.secondId===null){ numbersCalc.secondId=tokenId; render(); return; }
+  numbersCalc.secondId = tokenId; // already had two selected - swap the second choice
+  render();
+}
+
+function onNumbersOperatorClick(op){
+  if(!numbersCalc || !numbersCalc.selectedId || !numbersCalc.secondId) return;
+  const tokA = numbersCalc.pool.find(t=>t.id===numbersCalc.selectedId);
+  const tokB = numbersCalc.pool.find(t=>t.id===numbersCalc.secondId);
+  if(!tokA || !tokB || !numbersOpValid(op, tokA.value, tokB.value)) return;
+  const resultValue = numbersApplyOp(op, tokA.value, tokB.value);
+  const newTok = {id:'r'+Math.random().toString(36).slice(2,8), value:resultValue, isResult:true};
+  numbersCalc.pool = numbersCalc.pool.filter(t=>t.id!==tokA.id && t.id!==tokB.id);
+  numbersCalc.pool.push(newTok);
+  // Show the expression in the direction that actually produced the result (subtraction/division
+  // are order-independent to pick, but the displayed math has to match what really happened).
+  let left = tokA.value, right = tokB.value;
+  if(op==='-' && tokA.value < tokB.value){ left = tokB.value; right = tokA.value; }
+  if(op==='÷' && !(tokB.value>0 && tokA.value%tokB.value===0)){ left = tokB.value; right = tokA.value; }
+  numbersCalc.history.push(`${left} ${op} ${right} = ${resultValue}`);
+  numbersCalc.lastResultId = newTok.id;
+  numbersCalc.selectedId = null;
+  numbersCalc.secondId = null;
+  sfxSelect();
+  render();
+}
+
+function onNumbersSubmit(){
+  stopNumbersTimer();
+  const lastTok = numbersCalc && numbersCalc.lastResultId ? numbersCalc.pool.find(t=>t.id===numbersCalc.lastResultId) : null;
+  const value = lastTok ? lastTok.value : null;
+  const expr = numbersCalc && numbersCalc.history.length ? numbersCalc.history[numbersCalc.history.length-1] : null;
+  const solver = game.currentSolver();
+  game.submitAnswer(solver.id, value, expr);
+  numbersCalc = null;
+  numbersTurnStarted = false;
+  render();
+  maybeRunNumbersBotStep();
+}
+
+function renderNumbersRevealScreen(el){
+  const main = renderNumbersTopbar(el, `Numbers — Round ${game.roundNum} results`);
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'padding:20px;';
+  wrap.innerHTML = `
+    <div style="text-align:center;margin-bottom:10px;">
+      <div class="menu-eyebrow">Target was</div>
+      <div class="numbers-target"><span class="target-value">${game.target}</span></div>
+      <div style="font-size:13px;color:#cfe4da;opacity:.85;">Numbers: ${game.numbers.map(n=>n.value).join(', ')}</div>
+    </div>
+    <div class="numbers-reveal-list" style="max-width:420px;margin:18px auto;"></div>
+    ${game.bestPossible ? `<p style="text-align:center;font-size:13px;color:#cfe4da;opacity:.85;margin-top:10px;">Best possible: <strong style="color:var(--gold-bright);">${game.bestPossible.value}</strong>${game.bestPossible.expr?` (${game.bestPossible.expr})`:''}</p>` : ''}
+    <div style="text-align:center;margin-top:20px;"><button class="primary-btn" id="nextRoundBtn" style="width:auto;padding:14px 26px;">Next round</button></div>
+  `;
+  main.appendChild(wrap);
+  const list = wrap.querySelector('.numbers-reveal-list');
+  [...game.players].sort((a,b)=>(b.lastRoundPoints||0)-(a.lastRoundPoints||0)).forEach(p=>{
+    const row = document.createElement('div');
+    row.className = 'numbers-reveal-row';
+    const valueText = p.lastRoundValue!==null ? `${p.lastRoundValue}${p.lastRoundExpr?` (${p.lastRoundExpr})`:''}` : 'No answer';
+    row.innerHTML = `
+      <span>${p.name}${p.isBot?' 🤖':''}</span>
+      <span style="flex:1;text-align:center;font-size:12px;color:#cfe4da;opacity:.85;">${valueText}</span>
+      <span class="numbers-points-pill${(p.lastRoundPoints||0)===0?' zero':''}">${p.lastRoundPoints||0} pt${(p.lastRoundPoints||0)!==1?'s':''}</span>
+    `;
+    list.appendChild(row);
+  });
+  wrap.querySelector('#nextRoundBtn').addEventListener('click', ()=>{
+    game.startRound();
+    render();
+    maybeRunNumbersBotStep();
+  });
+  return el;
+}
+
+function renderNumbersGameOver(el){
+  const winners = game.winner || [];
+  const title = winners.length===1 ? `${winners[0].name} wins!` : `${winners.map(w=>w.name).join(' & ')} tie!`;
+  const rows = [...game.players].sort((a,b)=>b.score-a.score)
+    .map(p=>`<tr><td>${p.name}${winners.some(w=>w.id===p.id)?' 🏆':''}</td><td>${p.score}</td></tr>`).join('');
+  const logHTML = [...game.log].slice(-60).reverse().map(line=>`<div>${line}</div>`).join('');
+  el.innerHTML = `
+    <div class="menu-screen">
+      <div class="menu-eyebrow">Game over</div>
+      <h1 class="menu-title">${title}</h1>
+      <div style="width:100%;max-width:420px;text-align:left;margin:14px 0 22px;">
+        <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:var(--gold-bright);margin:0 0 10px;">Final scores</h3>
+        <table class="round-results" style="width:100%;">
+          <tr><th>Player</th><th>Points</th></tr>
+          ${rows}
+        </table>
+      </div>
+      <div style="width:100%;max-width:420px;text-align:left;margin:0 0 28px;">
+        <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:var(--gold-bright);margin:0 0 10px;">Table talk</h3>
+        <div style="max-height:220px;overflow-y:auto;background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px 14px;font-size:12px;color:#cfe4da;opacity:.9;display:flex;flex-direction:column;gap:5px;">
+          ${logHTML}
+        </div>
+      </div>
+      <div style="display:flex;gap:14px;">
+        <button class="primary-btn" id="rematchBtn" style="width:auto;padding:14px 26px;">Rematch</button>
+        <button class="ghost-btn" id="menuBtn2">Main menu</button>
+      </div>
+    </div>
+  `;
+  el.querySelector('#rematchBtn').addEventListener('click', ()=>{
+    const defs = game.players.map(p=>({id:p.id,name:p.name,isBot:p.isBot}));
+    game = new CountdownNumbersGame(defs);
+    game.startRound();
+    render();
+    maybeRunNumbersBotStep();
+  });
+  el.querySelector('#menuBtn2').addEventListener('click', ()=>{
+    game=null; activeGameId=null; revealedForId=null; seatConfigs=[]; render();
+  });
+  return el;
+}
+
+function maybeRunNumbersBotStep(){
+  if(!game || game.gameOver) return;
+  if(game.phase==='picking'){
+    const picker = game.getPlayer(game.pickerId);
+    if(!picker.isBot) return;
+    setTimeout(()=>{
+      if(!game || game.phase!=='picking') return;
+      const n = Math.floor(Math.random()*5); // 0-4
+      game.chooseNumbers(n);
+      startNumbersCalc();
+      numbersTurnStarted = false;
+      render();
+      maybeRunNumbersBotStep();
+    }, 800);
+  } else if(game.phase==='solving'){
+    const solver = game.currentSolver();
+    if(!solver.isBot) return;
+    setTimeout(()=>{
+      if(!game || game.phase!=='solving') return;
+      const best = solveCountdownNumbers(game.numbers.map(n=>n.value), game.target);
+      game.submitAnswer(solver.id, best.value===game.target||best.value!==null ? best.value : null, best.expr);
+      numbersCalc = null;
+      render();
+      maybeRunNumbersBotStep();
+    }, 1400);
+  }
 }
 
 render();
