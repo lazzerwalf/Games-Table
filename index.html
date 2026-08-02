@@ -5985,6 +5985,8 @@ function renderTrumpsScreen(){
   return el;
 }
 
+let trumpsCutResultPause = false;
+
 function renderTrumpsRoundCompleteModal(){
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
@@ -5992,6 +5994,7 @@ function renderTrumpsRoundCompleteModal(){
     `<tr><td>${p.name}${p.eliminated?' (out)':''}</td><td>${p.eliminated?'—':p.tricksWon+' trick'+(p.tricksWon!==1?'s':'')}</td></tr>`
   ).join('');
   const caller = game.trumpCallerId ? game.getPlayer(game.trumpCallerId) : null;
+  const showContinue = !game.awaitingCut && !trumpsCutResultPause;
   overlay.innerHTML = `
     <div class="modal-box" style="max-width:480px;">
       <h2 class="display">Round ${game.roundNum} complete</h2>
@@ -6000,47 +6003,56 @@ function renderTrumpsRoundCompleteModal(){
         ${rows}
       </table>
       <div class="cut-the-deck-area"></div>
-      ${(!game.awaitingCut && caller) ? `<p style="text-align:center;font-size:13px;color:#cfe4da;opacity:.85;margin-top:14px;">${caller.name} will call the next trump suit.</p>` : ''}
-      ${!game.awaitingCut ? '<button class="primary-btn" id="continueBtn">Continue</button>' : ''}
+      ${(showContinue && caller) ? `<p style="text-align:center;font-size:13px;color:#cfe4da;opacity:.85;margin-top:14px;">${caller.name} will call the next trump suit.</p>` : ''}
+      ${showContinue ? '<button class="primary-btn" id="continueBtn">Continue</button>' : ''}
     </div>
   `;
-  if(!game.awaitingCut){
+  if(showContinue){
     overlay.querySelector('#continueBtn').addEventListener('click', ()=> proceedAfterTrumpsRound());
   } else {
     const area = overlay.querySelector('.cut-the-deck-area');
-    area.innerHTML = `<h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:var(--gold-bright);margin:18px 0 12px;text-align:center;">Cutting the deck</h3>`;
+    const cutInProgress = game.awaitingCut;
+    area.innerHTML = `<h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:var(--gold-bright);margin:18px 0 12px;text-align:center;">${cutInProgress ? 'Cutting the deck' : 'Cut results'}</h3>`;
 
     const drawsRow = document.createElement('div');
     drawsRow.style.cssText = 'display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:14px;';
     game.cutDraws.forEach(d=>{
       const player = game.getPlayer(d.playerId);
+      const isWinner = !cutInProgress && caller && d.playerId===caller.id;
       const col = document.createElement('div');
-      col.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:4px;';
+      col.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:4px;'+(isWinner?'outline:2px solid var(--gold);border-radius:8px;padding:4px;':'');
       col.appendChild(makeCardEl(d.card, 'mini'));
       const label = document.createElement('div');
       label.style.cssText = 'font-size:11px;color:#cfe4da;opacity:.8;';
-      label.textContent = player.name;
+      label.textContent = player.name + (isWinner ? ' 🏆' : '');
       col.appendChild(label);
       drawsRow.appendChild(col);
     });
     area.appendChild(drawsRow);
 
-    const nextId = game.cutContenderIds[game.cutDraws.length];
-    const nextPlayer = game.getPlayer(nextId);
-    const deckWrap = document.createElement('div');
-    deckWrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:10px;';
-    const prompt = document.createElement('div');
-    prompt.style.cssText = 'font-size:13px;color:#cfe4da;opacity:.9;text-align:center;';
-    prompt.textContent = nextPlayer.isBot ? `${nextPlayer.name} is cutting the deck…` : `${nextPlayer.name}, tap the deck to cut it.`;
-    deckWrap.appendChild(prompt);
-    const deckEl = makeCardEl({back:true}, 'normal');
-    if(!nextPlayer.isBot && !uiLock){
-      deckEl.style.cursor = 'pointer';
-      deckEl.classList.add('playable');
-      deckEl.addEventListener('click', ()=> onTrumpsCutDeck(nextPlayer.id));
+    if(cutInProgress){
+      const nextId = game.cutContenderIds[game.cutDraws.length];
+      const nextPlayer = game.getPlayer(nextId);
+      const deckWrap = document.createElement('div');
+      deckWrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:10px;';
+      const prompt = document.createElement('div');
+      prompt.style.cssText = 'font-size:13px;color:#cfe4da;opacity:.9;text-align:center;';
+      prompt.textContent = nextPlayer.isBot ? `${nextPlayer.name} is cutting the deck…` : `${nextPlayer.name}, tap the deck to cut it.`;
+      deckWrap.appendChild(prompt);
+      const deckEl = makeCardEl({back:true}, 'normal');
+      if(!nextPlayer.isBot && !uiLock){
+        deckEl.style.cursor = 'pointer';
+        deckEl.classList.add('playable');
+        deckEl.addEventListener('click', ()=> onTrumpsCutDeck(nextPlayer.id));
+      }
+      deckWrap.appendChild(deckEl);
+      area.appendChild(deckWrap);
+    } else if(caller){
+      const winMsg = document.createElement('div');
+      winMsg.style.cssText = 'text-align:center;font-size:14px;color:var(--gold-bright);font-weight:600;margin-top:4px;';
+      winMsg.textContent = `${caller.name} wins the cut!`;
+      area.appendChild(winMsg);
     }
-    deckWrap.appendChild(deckEl);
-    area.appendChild(deckWrap);
   }
   return overlay;
 }
@@ -6051,12 +6063,15 @@ function onTrumpsCutDeck(playerId){
   try{ result = game.cutDeck(playerId); } catch(e){ return; }
   sfxCardFlip();
   uiLock = true;
+  const justResolved = !game.awaitingCut;
+  if(justResolved) trumpsCutResultPause = true;
   render();
   setTimeout(()=>{
     uiLock = false;
+    if(justResolved) trumpsCutResultPause = false;
     render();
     if(game.awaitingCut) maybeRunTrumpsCutBot();
-  }, 1300);
+  }, justResolved ? 2400 : 1300);
 }
 
 function maybeRunTrumpsCutBot(){
@@ -6070,11 +6085,18 @@ function maybeRunTrumpsCutBot(){
     let result;
     try{ result = game.cutDeck(nextId); } catch(e){ uiLock=false; return; }
     sfxCardFlip();
-    uiLock = false;
+    const justResolved = !game.awaitingCut;
+    if(justResolved) trumpsCutResultPause = true;
     render();
-    if(game.awaitingCut) maybeRunTrumpsCutBot();
+    setTimeout(()=>{
+      uiLock = false;
+      if(justResolved) trumpsCutResultPause = false;
+      render();
+      if(game.awaitingCut) maybeRunTrumpsCutBot();
+    }, justResolved ? 2400 : 100);
   }, 1000);
 }
+
 
 function proceedAfterTrumpsRound(){
   game.startRound(); // deals the new round's hands; sets awaitingTrumpCall if round > 1
