@@ -1565,6 +1565,7 @@ document.documentElement.style.setProperty('--card-scale', cardScale);
 /* ---------- Online multiplayer (Greedy Pig only, for now) ---------- */
 const myDeviceId = 'dev_' + Math.random().toString(36).slice(2,10) + Date.now().toString(36);
 let onlinePlayMode = 'local'; // 'local' | 'online' — which setup panel is showing, shared across all games
+let numbersTimeLimit = 30; // seconds per turn, chosen at setup for the Numbers game
 let onlineMode = false;      // true once we've created/joined an online room
 let onlineRoomCode = null;
 let onlineRoomState = null;  // local cache of the shared room object
@@ -1930,6 +1931,7 @@ function renderMenu(){
 
 /* ---------- SETUP ---------- */
 function renderSetup(){
+  if(pendingGameId==='numbers') return renderNumbersSetup();
   if(seatConfigs.length===0){
     seatConfigs = [
       {id:'p1', name:'You', isBot:false},
@@ -1941,7 +1943,7 @@ function renderSetup(){
     ];
   }
   const gameMeta = GAMES.find(g=>g.id===pendingGameId);
-  const seatOptions = pendingGameId==='pairs' ? [2,3,4,5,6] : pendingGameId==='sevens' ? [3,4,5,6] : pendingGameId==='bonk' ? [2,3,4,5,6] : pendingGameId==='numbers' ? [2,3,4,5,6] : [2,3,4];
+  const seatOptions = pendingGameId==='pairs' ? [2,3,4,5,6] : pendingGameId==='sevens' ? [3,4,5,6] : pendingGameId==='bonk' ? [2,3,4,5,6] : [2,3,4];
   let seatCount = Math.max(seatOptions[0], Math.min(seatConfigs._count || seatOptions[0], seatOptions[seatOptions.length-1]));
 
   const el = document.createElement('div');
@@ -6415,7 +6417,7 @@ function renderNumbersRulesPanel(){
     <p>2–6 players. Each round, one player (rotating clockwise) picks how many large numbers (from 25, 50, 75, 100) they want, from 0 to 4 — the rest are small numbers (1–10, each appearing twice). The six numbers are drawn at random from those pools, then a random 3-digit target between 100 and 999 is set.</p>
 
     <h4>Solving</h4>
-    <p>Everyone gets the same six numbers and target, one at a time. You have 30 seconds to combine numbers using +, −, ×, ÷ to get as close to the target as possible — tap two numbers then an operator to combine them, and keep going. You don't have to use all six numbers. Results can never go negative or come out as a fraction.</p>
+    <p>Everyone gets the same six numbers and target, one at a time. You have a set time limit (chosen at setup) to combine numbers using +, −, ×, ÷ to get as close to the target as possible — tap two numbers then an operator to combine them, and keep going. You don't have to use all six numbers. Results can never go negative or come out as a fraction.</p>
 
     <h4>Scoring</h4>
     <ul>
@@ -6454,7 +6456,7 @@ function startNumbersCalc(){
     selectedId: null,
     history: [],
     lastResultId: null,
-    timeLeft: 30,
+    timeLeft: numbersTimeLimit,
     timerHandle: null,
   };
 }
@@ -6609,8 +6611,8 @@ function renderNumbersSolvingScreen(el){
     wrap.style.minHeight = '300px';
     wrap.innerHTML = `
       <div class="display">${multiHuman ? `Pass the device to ${solver.name}` : `Ready, ${solver.name}?`}</div>
-      <div style="opacity:.75;font-size:13px;">You'll have 30 seconds once you start.</div>
-      <button class="primary-btn" style="width:auto;padding:12px 26px;">Start my 30 seconds</button>
+      <div style="opacity:.75;font-size:13px;">You'll have ${numbersTimeLimit} seconds once you start.</div>
+      <button class="primary-btn" style="width:auto;padding:12px 26px;">Start my ${numbersTimeLimit} seconds</button>
     `;
     wrap.querySelector('button').addEventListener('click', ()=>{
       numbersTurnStarted = true;
@@ -6770,13 +6772,13 @@ function renderNumbersRevealScreen(el){
 
 function renderNumbersGameOver(el){
   const winners = game.winner || [];
-  const title = winners.length===1 ? `${winners[0].name} wins!` : `${winners.map(w=>w.name).join(' & ')} tie!`;
+  const isSolo = game.players.length===1;
+  const title = isSolo ? `Final score: ${game.players[0].score} points` : (winners.length===1 ? `${winners[0].name} wins!` : `${winners.map(w=>w.name).join(' & ')} tie!`);
   const rows = [...game.players].sort((a,b)=>b.score-a.score)
-    .map(p=>`<tr><td>${p.name}${winners.some(w=>w.id===p.id)?' 🏆':''}</td><td>${p.score}</td></tr>`).join('');
+    .map(p=>`<tr><td>${p.name}${!isSolo && winners.some(w=>w.id===p.id)?' 🏆':''}</td><td>${p.score}</td></tr>`).join('');
   const logHTML = [...game.log].slice(-60).reverse().map(line=>`<div>${line}</div>`).join('');
   el.innerHTML = `
-    <div class="menu-screen">
-      <div class="menu-eyebrow">Game over</div>
+    <div class="menu-screen">      <div class="menu-eyebrow">Game over</div>
       <h1 class="menu-title">${title}</h1>
       <div style="width:100%;max-width:420px;text-align:left;margin:14px 0 22px;">
         <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:var(--gold-bright);margin:0 0 10px;">Final scores</h3>
@@ -6837,6 +6839,93 @@ function maybeRunNumbersBotStep(){
       maybeRunNumbersBotStep();
     }, 1400);
   }
+}
+
+function renderNumbersSetup(){
+  const el = document.createElement('div');
+  el.className = 'setup-screen';
+  el.innerHTML = `
+    <div class="setup-card">
+      <button class="back-link">&larr; Back to games</button>
+      <h2 class="display" style="margin-top:0;">Numbers</h2>
+      <div class="setup-tabs">
+        <button class="setup-tab-btn ${setupTab==='setup'?'active':''}" data-tab="setup">Table setup</button>
+        <button class="setup-tab-btn ${setupTab==='rules'?'active':''}" data-tab="rules">Rules</button>
+      </div>
+      <div class="tab-body"></div>
+    </div>
+  `;
+  el.querySelector('.back-link').addEventListener('click', ()=>{ revealedForId=null; render(); });
+  el.querySelectorAll('.setup-tab-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ setupTab = btn.dataset.tab; render(); });
+  });
+  const tabBody = el.querySelector('.tab-body');
+
+  if(setupTab==='rules'){
+    tabBody.appendChild(renderNumbersRulesPanel());
+    return el;
+  }
+
+  const modeRow = document.createElement('div');
+  modeRow.style.cssText = 'display:flex;gap:8px;margin-bottom:18px;';
+  modeRow.innerHTML = `
+    <button class="count-btn ${onlinePlayMode==='local'?'selected':''}" data-mode="local" style="flex:1;">Local (1 player)</button>
+    <button class="count-btn ${onlinePlayMode==='online'?'selected':''}" data-mode="online" style="flex:1;">Online (2–4 players)</button>
+  `;
+  tabBody.appendChild(modeRow);
+  modeRow.querySelectorAll('button').forEach(b=>{
+    b.addEventListener('click', ()=>{ onlinePlayMode = b.dataset.mode; render(); });
+  });
+
+  const timeWrap = document.createElement('div');
+  timeWrap.style.cssText = 'margin-bottom:20px;';
+  timeWrap.innerHTML = `<h4 style="font-family:'Fraunces',serif;font-size:15px;color:var(--gold-bright);margin:0 0 10px;">Time per turn</h4>`;
+  const timeBtnRow = document.createElement('div');
+  timeBtnRow.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;';
+  [30,60,90,120].forEach(t=>{
+    const btn = document.createElement('button');
+    btn.className = 'count-btn' + (numbersTimeLimit===t?' selected':'');
+    btn.textContent = t+'s';
+    btn.style.flex = '1 1 70px';
+    btn.addEventListener('click', ()=>{ numbersTimeLimit = t; render(); });
+    timeBtnRow.appendChild(btn);
+  });
+  timeWrap.appendChild(timeBtnRow);
+  tabBody.appendChild(timeWrap);
+
+  if(onlinePlayMode==='online'){
+    tabBody.appendChild(renderNumbersOnlineSetupPanel());
+    return el;
+  }
+
+  const nameWrap = document.createElement('div');
+  nameWrap.style.cssText = 'margin-bottom:20px;';
+  nameWrap.innerHTML = `
+    <h4 style="font-family:'Fraunces',serif;font-size:15px;color:var(--gold-bright);margin:0 0 10px;">Your name</h4>
+    <input class="seat-name-input" id="soloNameInput" placeholder="Your name" maxlength="16" value="You" style="width:100%;box-sizing:border-box;">
+  `;
+  tabBody.appendChild(nameWrap);
+
+  const note = document.createElement('div');
+  note.className = 'rules-note';
+  note.style.marginBottom = '18px';
+  note.textContent = 'Play solo — pick your numbers, solve against the clock, and see how you score. No opponents, no bots.';
+  tabBody.appendChild(note);
+
+  const startBtn = document.createElement('button');
+  startBtn.className = 'primary-btn';
+  startBtn.textContent = 'Start the game';
+  startBtn.addEventListener('click', ()=>{
+    const name = (document.getElementById('soloNameInput').value || '').trim() || 'You';
+    game = new CountdownNumbersGame([{id:'solo', name, isBot:false}]);
+    game.startRound();
+    activeGameId = 'numbers';
+    revealedForId = 'solo';
+    render();
+  });
+  tabBody.appendChild(startBtn);
+
+  return el;
 }
 
 render();
