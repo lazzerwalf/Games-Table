@@ -1425,6 +1425,102 @@ class CountdownNumbersGame{
   }
 }
 
+/* ======================= NUMBERS ONLINE ENGINE (real-time race) ======================= */
+// Online play is simultaneous, not sequential: everyone sees the same numbers/target at once
+// and solves independently on their own device. Plain serializable state, not a class.
+function onlineNumbersInit(players, timeLimit){
+  return {
+    players: players.map(p=>({id:p.id, name:p.name, deviceId:p.deviceId||null, score:0, lastRoundValue:null, lastRoundExpr:null, lastRoundPoints:null})),
+    seatOrder: players.map(p=>p.id),
+    pickerId: null,
+    roundNum: 0,
+    numbers: [], target: null,
+    phase: 'picking', // 'picking' -> 'solving' -> 'reveal'
+    roundStartAt: null,
+    timeLimit: timeLimit,
+    submissions: {}, // playerId -> {value, expr}
+    roundEndedEarly: false,
+    earlyWinnerId: null,
+    bestPossible: null,
+    log: [],
+    gameOver: false,
+    winner: null,
+  };
+}
+
+function onlineNumbersRotatePicker(g){
+  if(g.pickerId===null){ g.pickerId = g.seatOrder[Math.floor(Math.random()*g.seatOrder.length)]; return; }
+  const pos = g.seatOrder.indexOf(g.pickerId);
+  g.pickerId = g.seatOrder[(pos+1)%g.seatOrder.length];
+}
+
+function onlineNumbersStartRound(g){
+  g.roundNum++;
+  onlineNumbersRotatePicker(g);
+  g.numbers = []; g.target = null;
+  g.phase = 'picking';
+  g.roundStartAt = null;
+  g.submissions = {};
+  g.roundEndedEarly = false;
+  g.earlyWinnerId = null;
+  g.bestPossible = null;
+  g.players.forEach(p=>{ p.lastRoundValue=null; p.lastRoundExpr=null; p.lastRoundPoints=null; });
+  const picker = g.players.find(p=>p.id===g.pickerId);
+  g.log.push(`Round ${g.roundNum} — ${picker.name} picks the numbers.`);
+}
+
+function onlineNumbersChooseNumbers(g, largeCount){
+  const large = Math.max(0, Math.min(4, largeCount));
+  const small = 6 - large;
+  g.numbers = drawNumbersSet(large, small);
+  g.target = randomTarget();
+  g.phase = 'solving';
+  g.roundStartAt = Date.now();
+  g.log.push(`Numbers: ${g.numbers.map(n=>n.value).join(', ')}. Target: ${g.target}.`);
+}
+
+function onlineNumbersSubmit(g, playerId, value, expr){
+  if(g.submissions[playerId] !== undefined) return; // already submitted
+  g.submissions[playerId] = {value, expr};
+  const player = g.players.find(p=>p.id===playerId);
+  g.log.push(value===null ? `${player.name} didn't reach a number.` : `${player.name} reached ${value}${expr?` (${expr})`:''}.`);
+  if(value!==null && value===g.target && !g.roundEndedEarly){
+    g.roundEndedEarly = true;
+    g.earlyWinnerId = playerId;
+    g.log.push(`${player.name} hit the target exactly — round over!`);
+  }
+  onlineNumbersMaybeFinishRound(g);
+}
+
+function onlineNumbersMaybeFinishRound(g){
+  if(g.phase!=='solving') return;
+  const allSubmitted = g.players.every(p=> g.submissions[p.id] !== undefined);
+  const timedOut = g.roundStartAt && (Date.now() - g.roundStartAt) > (g.timeLimit*1000 + 6000); // safety buffer for dropped players
+  if(!allSubmitted && !timedOut) return;
+  g.players.forEach(p=>{
+    const sub = g.submissions[p.id];
+    if(!sub || sub.value===null || sub.value===undefined){
+      p.lastRoundValue=null; p.lastRoundExpr=null; p.lastRoundPoints=0;
+    } else {
+      const diff = Math.abs(sub.value-g.target);
+      const points = numbersScoreForDiff(diff);
+      p.lastRoundValue = sub.value; p.lastRoundExpr = sub.expr; p.lastRoundPoints = points;
+      p.score += points;
+    }
+  });
+  g.bestPossible = solveCountdownNumbers(g.numbers.map(n=>n.value), g.target);
+  g.phase = 'reveal';
+  g.log.push(g.bestPossible.value===g.target
+    ? `The target ${g.target} was reachable exactly.`
+    : `Closest possible was ${g.bestPossible.value} (off by ${g.bestPossible.diff}).`);
+}
+
+function onlineNumbersEndGame(g){
+  g.gameOver = true;
+  const maxScore = Math.max(...g.players.map(p=>p.score));
+  g.winner = g.players.filter(p=>p.score===maxScore);
+}
+
 /* ======================= APP / UI ======================= */
 const app = document.getElementById('app');
 let game = null;
@@ -1773,7 +1869,7 @@ function maybeDriveOnlineBotTurn(){
   else maybeDriveOnlineGreedyPigBotTurn();
 }
 
-function maxSeatsForGameType(gt){ return gt==='black5' ? 4 : 6; }
+function maxSeatsForGameType(gt){ return (gt==='black5'||gt==='numbers') ? 4 : 6; }
 
 function maybeDriveOnlineGreedyPigBotTurn(){
   if(!onlineMode || !onlineRoomState || onlineRoomState.phase!=='playing' || !onlineRoomState.game) return;
@@ -1829,6 +1925,7 @@ async function pollOnlineRoom(){
   // safety net: if a bot's turn ever gets stuck for any reason, this self-heals within one
   // polling interval instead of deadlocking until someone reloads.
   maybeDriveOnlineBotTurn();
+  maybeDriveOnlineNumbersPoll();
 }
 
 function leaveOnlineGame(){
@@ -1885,6 +1982,10 @@ function render(){
   }
   if(activeGameId==='bonk-online'){
     app.innerHTML=''; app.appendChild(renderBonkOnlineScreen());
+    return;
+  }
+  if(activeGameId==='numbers-online'){
+    app.innerHTML=''; app.appendChild(renderNumbersOnlineScreen());
     return;
   }
   if(!game){
@@ -6450,13 +6551,14 @@ function numbersApplyOp(op, a, b){
   if(op==='÷') return (b>0 && a%b===0) ? a/b : b/a;
 }
 
-function startNumbersCalc(){
+function startNumbersCalc(numbersArr, timeLimitOverride){
+  const nums = numbersArr || game.numbers;
   numbersCalc = {
-    pool: game.numbers.map(n=>({id:n.id, value:n.value, isResult:false})),
+    pool: nums.map(n=>({id:n.id, value:n.value, isResult:false})),
     selectedId: null,
     history: [],
     lastResultId: null,
-    timeLeft: numbersTimeLimit,
+    timeLeft: timeLimitOverride!==undefined ? timeLimitOverride : numbersTimeLimit,
     timerHandle: null,
   };
 }
@@ -6471,7 +6573,8 @@ function startNumbersTimer(){
     numbersCalc.timeLeft--;
     if(numbersCalc.timeLeft<=0){
       stopNumbersTimer();
-      onNumbersSubmit();
+      if(activeGameId==='numbers-online') onlineNumbersSubmitAnswer();
+      else onNumbersSubmit();
       return;
     }
     render();
@@ -6925,6 +7028,479 @@ function renderNumbersSetup(){
   });
   tabBody.appendChild(startBtn);
 
+  return el;
+}
+
+/* ======================= NUMBERS ONLINE UI ======================= */
+function renderNumbersOnlineSetupPanel(){
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `
+    <div class="rules-note" style="margin-bottom:20px;">Play with people on other phones: one of you creates a room and shares the 4-letter code, the others join with it. Everyone sees the same numbers and target at once and solves independently — first to hit the target exactly wins the round, or the closest answer wins when time runs out. No bots — 2 to 4 real players.</div>
+    <div style="margin-bottom:26px;">
+      <h4 style="font-family:'Fraunces',serif;font-size:15px;color:var(--gold-bright);margin:0 0 10px;">Create a room</h4>
+      <input class="seat-name-input" id="hostNameInput" placeholder="Your name" maxlength="16" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
+      <button class="primary-btn" id="createRoomBtn">Create room</button>
+    </div>
+    <div>
+      <h4 style="font-family:'Fraunces',serif;font-size:15px;color:var(--gold-bright);margin:0 0 10px;">Join a room</h4>
+      <input class="seat-name-input" id="guestNameInput" placeholder="Your name" maxlength="16" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
+      <input class="seat-name-input" id="roomCodeInput" placeholder="Room code" style="margin-bottom:10px;width:100%;box-sizing:border-box;text-transform:uppercase;letter-spacing:.1em;" maxlength="4">
+      <button class="primary-btn" id="joinRoomBtn">Join room</button>
+    </div>
+  `;
+  wrap.querySelector('#createRoomBtn').addEventListener('click', ()=>{
+    const name = wrap.querySelector('#hostNameInput').value.trim() || 'Host';
+    createNumbersOnlineRoom(name);
+  });
+  wrap.querySelector('#joinRoomBtn').addEventListener('click', ()=>{
+    const name = wrap.querySelector('#guestNameInput').value.trim() || 'Player';
+    const code = wrap.querySelector('#roomCodeInput').value;
+    joinNumbersOnlineRoom(code, name);
+  });
+  return wrap;
+}
+
+async function createNumbersOnlineRoom(hostName){
+  if(!hasSharedStorage()){ alert("Couldn't connect to the game server. Check your internet connection and try again."); return; }
+  const code = generateRoomCode();
+  const seatId = 'p_'+myDeviceId.slice(4,9);
+  const room = {
+    gameType: 'numbers', version: 1, phase: 'lobby', hostDeviceId: myDeviceId, code,
+    timeLimit: numbersTimeLimit,
+    lobbySeats: [ {id:seatId, name:(hostName||'Host').slice(0,20), deviceId:myDeviceId} ],
+  };
+  const result = await storageSetSafe(pigRoomKey(code), JSON.stringify(room), true);
+  if(!result){ alert('Could not create the room — check your connection and try again.'); return; }
+  onlineMode = true; onlineRoomCode = code; onlineIsHost = true; onlineRoomState = room;
+  activeGameId = 'numbers-online';
+  startOnlinePolling();
+  render();
+}
+
+async function joinNumbersOnlineRoom(codeRaw, guestName){
+  if(!hasSharedStorage()){ alert("Couldn't connect to the game server. Check your internet connection and try again."); return; }
+  const code = (codeRaw||'').trim().toUpperCase();
+  if(!code){ alert('Enter a room code.'); return; }
+  const res = await storageGetSafe(pigRoomKey(code), true);
+  if(!res){ alert("Couldn't find a room with that code — double check it with your friend."); return; }
+  let room;
+  try{ room = JSON.parse(res.value); } catch(e){ alert('That room looks corrupted — ask your friend to create a new one.'); return; }
+  if(room.gameType!=='numbers'){ alert('That code belongs to a different game.'); return; }
+  if(room.phase !== 'lobby'){ alert('That game has already started.'); return; }
+  if(!room.lobbySeats.some(s=>s.deviceId===myDeviceId)){
+    if(room.lobbySeats.length>=maxSeatsForGameType('numbers')){ alert('That room is full.'); return; }
+    const seatId = 'p_'+myDeviceId.slice(4,9);
+    room.lobbySeats.push({id:seatId, name:(guestName||'Player').slice(0,20), deviceId:myDeviceId});
+    room.version = (room.version||1)+1;
+    const writeResult = await storageSetSafe(pigRoomKey(code), JSON.stringify(room), true);
+    if(!writeResult){ alert('Could not join right now — try again.'); return; }
+  }
+  onlineMode = true; onlineRoomCode = code; onlineIsHost = (room.hostDeviceId===myDeviceId); onlineRoomState = room;
+  activeGameId = 'numbers-online';
+  startOnlinePolling();
+  render();
+}
+
+async function startNumbersOnlineGame(){
+  if(!onlineIsHost || !onlineRoomState) return;
+  await refreshOnlineRoomState();
+  const seats = onlineRoomState.lobbySeats;
+  if(seats.length<2){ alert('Need at least 2 players to start.'); render(); return; }
+  const g = onlineNumbersInit(seats.map(s=>({id:s.id, name:s.name, deviceId:s.deviceId})), onlineRoomState.timeLimit || 30);
+  onlineNumbersStartRound(g);
+  const newRoom = { ...onlineRoomState, phase:'playing', version: onlineRoomState.version+1, game: g };
+  const writeResult = await storageSetSafe(pigRoomKey(onlineRoomCode), JSON.stringify(newRoom), true);
+  if(!writeResult){ alert('Could not start the game — try again.'); return; }
+  onlineRoomState = newRoom;
+  render();
+}
+
+async function restartNumbersOnlineGame(){
+  if(!onlineIsHost || !onlineRoomState) return;
+  await refreshOnlineRoomState();
+  const newRoom = { ...onlineRoomState, phase:'lobby', version: onlineRoomState.version+1, game:null };
+  const writeResult = await storageSetSafe(pigRoomKey(onlineRoomCode), JSON.stringify(newRoom), true);
+  if(writeResult){ onlineRoomState = newRoom; render(); }
+}
+
+async function writeNumbersOnlineState(g){
+  const newRoom = { ...onlineRoomState, version: onlineRoomState.version+1, game: g };
+  const writeResult = await storageSetSafe(pigRoomKey(onlineRoomCode), JSON.stringify(newRoom), true);
+  if(writeResult){ onlineRoomState = newRoom; render(); }
+  else { render(); }
+}
+
+async function onlineNumbersChoosePick(largeCount){
+  await refreshOnlineRoomState();
+  const g = onlineRoomState.game;
+  if(!g || g.phase!=='picking') { render(); return; }
+  const me = g.players.find(p=>p.deviceId===myDeviceId);
+  if(!me || me.id!==g.pickerId){ render(); return; }
+  onlineNumbersChooseNumbers(g, largeCount);
+  stopNumbersTimer();
+  startNumbersCalc(g.numbers, g.timeLimit);
+  numbersTurnStarted = true;
+  startNumbersTimer();
+  await writeNumbersOnlineState(g);
+}
+
+async function onlineNumbersSubmitAnswer(){
+  if(!onlineRoomState || !onlineRoomState.game) return;
+  stopNumbersTimer();
+  const value = numbersCalc && numbersCalc.lastResultId ? numbersCalc.pool.find(t=>t.id===numbersCalc.lastResultId).value : null;
+  const expr = numbersCalc && numbersCalc.history.length ? numbersCalc.history[numbersCalc.history.length-1] : null;
+  await refreshOnlineRoomState();
+  const g = onlineRoomState.game;
+  const me = g.players.find(p=>p.deviceId===myDeviceId);
+  if(!me || g.submissions[me.id]!==undefined){ render(); return; }
+  onlineNumbersSubmit(g, me.id, value, expr);
+  if(value!==null && value===g.target) sfxWin();
+  numbersCalc = null;
+  await writeNumbersOnlineState(g);
+}
+
+function maybeDriveOnlineNumbersPoll(){
+  if(!onlineMode || !onlineRoomState || onlineRoomState.phase!=='playing' || !onlineRoomState.game) return;
+  if(onlineRoomState.gameType!=='numbers') return;
+  const g = onlineRoomState.game;
+  if(g.gameOver || g.phase!=='solving') return;
+  const me = g.players.find(p=>p.deviceId===myDeviceId);
+  if(me && g.roundEndedEarly && g.submissions[me.id]===undefined && !onlineNumbersForceSubmitInFlight){
+    onlineNumbersForceSubmitInFlight = true;
+    onlineNumbersSubmitAnswer().finally(()=>{ onlineNumbersForceSubmitInFlight=false; });
+    return;
+  }
+  // safety net: host force-resolves a round that's clearly overrun (e.g. someone's device dropped)
+  if(onlineIsHost && g.roundStartAt && (Date.now()-g.roundStartAt) > (g.timeLimit*1000+6000)){
+    onlineNumbersMaybeFinishRound(g);
+    if(g.phase==='reveal') writeNumbersOnlineState(g);
+  }
+}
+let onlineNumbersForceSubmitInFlight = false;
+
+function renderNumbersOnlineScreen(){
+  const el = document.createElement('div');
+  el.className = 'game-screen';
+  if(!onlineRoomState){ activeGameId=null; onlineMode=false; return renderMenu(); }
+  if(onlineRoomState.phase==='lobby') return renderNumbersOnlineLobby(el);
+  const g = onlineRoomState.game;
+  if(g.gameOver) return renderNumbersOnlineGameOver(el, g);
+  if(g.phase==='picking') return renderNumbersOnlinePicking(el, g);
+  if(g.phase==='reveal') return renderNumbersOnlineReveal(el, g);
+  return renderNumbersOnlineSolving(el, g);
+}
+
+function renderNumbersOnlineTopbar(el, title, g){
+  el.innerHTML = `
+    <div class="topbar">
+      <div class="topbar-title">${title}</div>
+      <div class="topbar-actions">${g?'<button id="endGameBtn" class="ghost-btn">End game</button>':''}<button id="leaveBtn">Leave</button></div>
+    </div>
+    <div class="table-area">
+      <div class="table-main" id="numbersMain" style="overflow-y:auto;"></div>
+      <details class="side-panel">
+        <summary>Players &amp; Table talk</summary>
+        <div class="side-panel-body">
+          <h3>Players</h3>
+          <div class="score-list"></div>
+          <h3>Table talk</h3>
+          <div class="log-feed"></div>
+        </div>
+      </details>
+    </div>
+  `;
+  el.querySelector('#leaveBtn').addEventListener('click', ()=>{ stopNumbersTimer(); leaveOnlineGame(); });
+  if(g){
+    el.querySelector('#endGameBtn').addEventListener('click', async ()=>{
+      if(!confirm('End the game now? Whoever has the most points will be declared the winner.')) return;
+      stopNumbersTimer();
+      await refreshOnlineRoomState();
+      const g2 = onlineRoomState.game;
+      onlineNumbersEndGame(g2);
+      sfxWin();
+      await writeNumbersOnlineState(g2);
+    });
+    const scoreList = el.querySelector('.score-list');
+    [...g.players].sort((a,b)=>b.score-a.score).forEach(p=>{
+      const item = document.createElement('div');
+      item.className = 'score-item' + (p.deviceId===myDeviceId?' you':'');
+      item.innerHTML = `<span>${p.name}${p.id===g.pickerId?' 🎯':''}</span><span>${p.score} pt${p.score!==1?'s':''}</span>`;
+      scoreList.appendChild(item);
+    });
+    const logFeed = el.querySelector('.log-feed');
+    [...g.log].slice(-40).reverse().forEach(line=>{
+      const d = document.createElement('div');
+      d.textContent = line;
+      logFeed.appendChild(d);
+    });
+  } else {
+    el.querySelector('details.side-panel').style.display='none';
+  }
+  setupSidePanelToggle(el);
+  return el.querySelector('#numbersMain');
+}
+
+function renderNumbersOnlineLobby(el){
+  const seats = onlineRoomState.lobbySeats;
+  const maxSeats = maxSeatsForGameType('numbers');
+  el.innerHTML = `
+    <div class="topbar">
+      <div class="topbar-title">Numbers — Online Lobby</div>
+      <div class="topbar-actions"><button id="leaveBtn">Leave</button></div>
+    </div>
+    <div class="menu-screen" style="justify-content:flex-start;padding-top:50px;">
+      <div class="menu-eyebrow">Room code</div>
+      <h1 class="menu-title" style="letter-spacing:.15em;">${onlineRoomState.code}</h1>
+      <p class="menu-sub">Share this code with your friends. ${onlineRoomState.timeLimit}s per turn. Needs 2–4 players — no bots.</p>
+      <div style="width:100%;max-width:360px;margin:10px 0 24px;">
+        <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:var(--gold-bright);margin:0 0 10px;text-align:left;">Players (${seats.length}/${maxSeats})</h3>
+        <div class="score-list"></div>
+      </div>
+      <div id="lobbyActionArea" style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;"></div>
+    </div>
+  `;
+  el.querySelector('#leaveBtn').addEventListener('click', ()=> leaveOnlineGame());
+  const list = el.querySelector('.score-list');
+  seats.forEach(s=>{
+    const item = document.createElement('div');
+    item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;';
+    item.className = 'score-item' + (s.deviceId===myDeviceId ? ' you' : '');
+    const label = document.createElement('span');
+    label.textContent = `${s.name}${s.deviceId===onlineRoomState.hostDeviceId?' — host':''}`;
+    item.appendChild(label);
+    if(onlineIsHost && s.deviceId!==onlineRoomState.hostDeviceId){
+      const removeBtn = document.createElement('button');
+      removeBtn.textContent = '✕';
+      removeBtn.title = 'Remove player (only if they have left)';
+      removeBtn.style.cssText = 'background:none;border:none;color:#ffb3b8;font-size:15px;padding:2px 6px;cursor:pointer;line-height:1;';
+      removeBtn.addEventListener('click', ()=> removeSeatFromLobby(s.id));
+      item.appendChild(removeBtn);
+    } else {
+      item.appendChild(document.createElement('span'));
+    }
+    list.appendChild(item);
+  });
+  const actionArea = el.querySelector('#lobbyActionArea');
+  if(onlineIsHost){
+    const startBtn = document.createElement('button');
+    startBtn.className='primary-btn';
+    startBtn.style.cssText='width:auto;padding:12px 26px;';
+    startBtn.textContent = seats.length<2 ? 'Need at least 2 players' : 'Start the game';
+    startBtn.disabled = seats.length<2;
+    startBtn.addEventListener('click', ()=> startNumbersOnlineGame());
+    actionArea.appendChild(startBtn);
+  } else {
+    const waiting = document.createElement('div');
+    waiting.style.cssText='color:#cfe4da;opacity:.75;font-size:13px;';
+    waiting.textContent = 'Waiting for the host to start the game…';
+    actionArea.appendChild(waiting);
+  }
+  return el;
+}
+
+function renderNumbersOnlinePicking(el, g){
+  const main = renderNumbersOnlineTopbar(el, `Numbers — Round ${g.roundNum} · Room ${onlineRoomState.code}`, g);
+  const picker = g.players.find(p=>p.id===g.pickerId);
+  const isMe = picker.deviceId===myDeviceId;
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'padding:20px;text-align:center;';
+  wrap.innerHTML = `
+    <div class="menu-eyebrow">${picker.name}'s pick</div>
+    <h2 class="display" style="margin:4px 0 6px;">How many large numbers?</h2>
+    <p style="font-size:13px;color:#cfe4da;opacity:.8;">Large numbers are 25, 50, 75, 100 — the rest will be small numbers (1–10).</p>
+    <div class="numbers-large-choice"></div>
+  `;
+  main.appendChild(wrap);
+  const choiceRow = wrap.querySelector('.numbers-large-choice');
+  if(isMe){
+    for(let n=0;n<=4;n++){
+      const btn = document.createElement('button');
+      btn.className = 'numbers-large-btn';
+      btn.innerHTML = `<span class="n">${n}</span>large, ${6-n} small`;
+      btn.addEventListener('click', ()=>{ sfxSelect(); onlineNumbersChoosePick(n); });
+      choiceRow.appendChild(btn);
+    }
+  } else {
+    const waiting = document.createElement('div');
+    waiting.style.cssText = 'margin-top:16px;font-size:13px;color:#cfe4da;opacity:.75;';
+    waiting.textContent = `${picker.name} is picking…`;
+    choiceRow.appendChild(waiting);
+  }
+  return el;
+}
+
+function renderNumbersOnlineSolving(el, g){
+  const main = renderNumbersOnlineTopbar(el, `Numbers — Room ${onlineRoomState.code}`, g);
+  const me = g.players.find(p=>p.deviceId===myDeviceId);
+  const alreadySubmitted = me && g.submissions[me.id]!==undefined;
+
+  if(!me){
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'padding:30px;text-align:center;';
+    wrap.innerHTML = `<div class="numbers-target">Target<span class="target-value">${g.target}</span></div><p style="font-size:13px;color:#cfe4da;opacity:.75;">Spectating.</p>`;
+    main.appendChild(wrap);
+    return el;
+  }
+
+  if(alreadySubmitted){
+    const submittedCount = g.players.filter(p=>g.submissions[p.id]!==undefined).length;
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'padding:30px;text-align:center;';
+    wrap.innerHTML = `
+      <div class="numbers-target">Target<span class="target-value">${g.target}</span></div>
+      <p style="font-size:14px;color:var(--gold-bright);margin-top:14px;">You submitted ${g.submissions[me.id].value!==null?g.submissions[me.id].value:'no answer'}.</p>
+      <p style="font-size:13px;color:#cfe4da;opacity:.75;">Waiting on ${g.players.length-submittedCount} more player${g.players.length-submittedCount!==1?'s':''}…</p>
+    `;
+    main.appendChild(wrap);
+    return el;
+  }
+
+  if(!numbersCalc){ startNumbersCalc(g.numbers, g.timeLimit); }
+  if(!numbersTurnStarted){
+    const wrap = document.createElement('div');
+    wrap.className = 'privacy-shield';
+    wrap.style.position = 'static';
+    wrap.style.minHeight = '300px';
+    wrap.innerHTML = `
+      <div class="display">Ready?</div>
+      <div style="opacity:.75;font-size:13px;">You'll have ${g.timeLimit} seconds once you start — everyone's racing on the same numbers.</div>
+      <button class="primary-btn" style="width:auto;padding:12px 26px;">Start my ${g.timeLimit} seconds</button>
+    `;
+    wrap.querySelector('button').addEventListener('click', ()=>{
+      numbersTurnStarted = true;
+      startNumbersTimer();
+      render();
+    });
+    main.appendChild(wrap);
+    return el;
+  }
+
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'padding:16px;';
+  wrap.innerHTML = `
+    <div class="numbers-timer${numbersCalc.timeLeft<=10?' low':''}">${numbersCalc.timeLeft}s</div>
+    <div class="numbers-target">Target<span class="target-value">${g.target}</span></div>
+    <div class="numbers-pool"></div>
+    <div class="numbers-op-row"></div>
+    <div class="numbers-current-value"></div>
+    <div class="numbers-history"></div>
+    <div style="display:flex;gap:12px;justify-content:center;margin-top:14px;">
+      <button class="ghost-btn" id="numbersResetBtn">Reset</button>
+      <button class="primary-btn" id="numbersSubmitBtn" style="width:auto;padding:12px 26px;margin-top:0;">Submit</button>
+    </div>
+  `;
+  main.appendChild(wrap);
+
+  const poolRow = wrap.querySelector('.numbers-pool');
+  numbersCalc.pool.forEach(tok=>{
+    const tEl = document.createElement('div');
+    tEl.className = 'numbers-token' + ((tok.id===numbersCalc.selectedId||tok.id===numbersCalc.secondId)?' selected':'') + (tok.isResult?' result':'');
+    tEl.textContent = tok.value;
+    tEl.addEventListener('click', ()=> onNumbersTokenClick(tok.id));
+    poolRow.appendChild(tEl);
+  });
+  const opRow = wrap.querySelector('.numbers-op-row');
+  const tokA = numbersCalc.selectedId ? numbersCalc.pool.find(t=>t.id===numbersCalc.selectedId) : null;
+  const tokB = numbersCalc.secondId ? numbersCalc.pool.find(t=>t.id===numbersCalc.secondId) : null;
+  ['+','-','×','÷'].forEach(op=>{
+    const btn = document.createElement('button');
+    btn.className = 'numbers-op-btn';
+    btn.textContent = op;
+    btn.disabled = !(tokA && tokB && numbersOpValid(op, tokA.value, tokB.value));
+    btn.addEventListener('click', ()=> onNumbersOperatorClick(op));
+    opRow.appendChild(btn);
+  });
+  const currentValueEl = wrap.querySelector('.numbers-current-value');
+  const lastTok = numbersCalc.lastResultId ? numbersCalc.pool.find(t=>t.id===numbersCalc.lastResultId) : null;
+  currentValueEl.textContent = lastTok ? 'Current best: ' : (numbersCalc.history.length===0 ? 'Combine two numbers to begin' : '');
+  if(lastTok){ const span=document.createElement('span'); span.className='val'; span.textContent=lastTok.value; currentValueEl.appendChild(span); }
+  const historyEl = wrap.querySelector('.numbers-history');
+  numbersCalc.history.forEach(line=>{ const d=document.createElement('div'); d.textContent=line; historyEl.appendChild(d); });
+
+  wrap.querySelector('#numbersResetBtn').addEventListener('click', ()=>{
+    const timeLeft = numbersCalc.timeLeft;
+    stopNumbersTimer();
+    startNumbersCalc(g.numbers, g.timeLimit);
+    numbersCalc.timeLeft = timeLeft;
+    startNumbersTimer();
+    render();
+  });
+  wrap.querySelector('#numbersSubmitBtn').addEventListener('click', ()=> onlineNumbersSubmitAnswer());
+  return el;
+}
+
+function renderNumbersOnlineReveal(el, g){
+  const main = renderNumbersOnlineTopbar(el, `Numbers — Round ${g.roundNum} results`, g);
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'padding:20px;';
+  wrap.innerHTML = `
+    <div style="text-align:center;margin-bottom:10px;">
+      <div class="menu-eyebrow">Target was</div>
+      <div class="numbers-target"><span class="target-value">${g.target}</span></div>
+      <div style="font-size:13px;color:#cfe4da;opacity:.85;">Numbers: ${g.numbers.map(n=>n.value).join(', ')}</div>
+    </div>
+    <div class="numbers-reveal-list" style="max-width:420px;margin:18px auto;"></div>
+    ${g.bestPossible ? `<p style="text-align:center;font-size:13px;color:#cfe4da;opacity:.85;margin-top:10px;">Best possible: <strong style="color:var(--gold-bright);">${g.bestPossible.value}</strong>${g.bestPossible.expr?` (${g.bestPossible.expr})`:''}</p>` : ''}
+    <div style="text-align:center;margin-top:20px;">${onlineIsHost ? '<button class="primary-btn" id="nextRoundBtn" style="width:auto;padding:14px 26px;">Next round</button>' : '<p style="font-size:13px;color:#cfe4da;opacity:.75;">Waiting for the host to continue…</p>'}</div>
+  `;
+  main.appendChild(wrap);
+  const list = wrap.querySelector('.numbers-reveal-list');
+  [...g.players].sort((a,b)=>(b.lastRoundPoints||0)-(a.lastRoundPoints||0)).forEach(p=>{
+    const row = document.createElement('div');
+    row.className = 'numbers-reveal-row';
+    const valueText = p.lastRoundValue!==null ? `${p.lastRoundValue}${p.lastRoundExpr?` (${p.lastRoundExpr})`:''}` : 'No answer';
+    row.innerHTML = `
+      <span>${p.name}${p.deviceId===myDeviceId?' (you)':''}</span>
+      <span style="flex:1;text-align:center;font-size:12px;color:#cfe4da;opacity:.85;">${valueText}</span>
+      <span class="numbers-points-pill${(p.lastRoundPoints||0)===0?' zero':''}">${p.lastRoundPoints||0} pt${(p.lastRoundPoints||0)!==1?'s':''}</span>
+    `;
+    list.appendChild(row);
+  });
+  if(onlineIsHost){
+    wrap.querySelector('#nextRoundBtn').addEventListener('click', async ()=>{
+      await refreshOnlineRoomState();
+      const g2 = onlineRoomState.game;
+      onlineNumbersStartRound(g2);
+      await writeNumbersOnlineState(g2);
+    });
+  }
+  return el;
+}
+
+function renderNumbersOnlineGameOver(el, g){
+  const winners = g.winner || [];
+  const title = winners.length===1 ? `${winners[0].name} wins!` : `${winners.map(w=>w.name).join(' & ')} tie!`;
+  const rows = [...g.players].sort((a,b)=>b.score-a.score)
+    .map(p=>`<tr><td>${p.name}${winners.some(w=>w.id===p.id)?' 🏆':''}${p.deviceId===myDeviceId?' (you)':''}</td><td>${p.score}</td></tr>`).join('');
+  const logHTML = [...g.log].slice(-60).reverse().map(line=>`<div>${line}</div>`).join('');
+  el.innerHTML = `
+    <div class="menu-screen">
+      <div class="menu-eyebrow">Game over</div>
+      <h1 class="menu-title">${title}</h1>
+      <p class="menu-sub">Room ${onlineRoomState.code}.</p>
+      <div style="width:100%;max-width:420px;text-align:left;margin:14px 0 22px;">
+        <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:var(--gold-bright);margin:0 0 10px;">Final scores</h3>
+        <table class="round-results" style="width:100%;">
+          <tr><th>Player</th><th>Points</th></tr>
+          ${rows}
+        </table>
+      </div>
+      <div style="width:100%;max-width:420px;text-align:left;margin:0 0 28px;">
+        <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:var(--gold-bright);margin:0 0 10px;">Table talk</h3>
+        <div style="max-height:220px;overflow-y:auto;background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px 14px;font-size:12px;color:#cfe4da;opacity:.9;display:flex;flex-direction:column;gap:5px;">
+          ${logHTML}
+        </div>
+      </div>
+      <div style="display:flex;gap:14px;">
+        ${onlineIsHost ? '<button class="primary-btn" id="rematchBtn" style="width:auto;padding:14px 26px;">Back to lobby</button>' : ''}
+        <button class="ghost-btn" id="menuBtn2">Leave</button>
+      </div>
+    </div>
+  `;
+  if(onlineIsHost){
+    el.querySelector('#rematchBtn').addEventListener('click', ()=> restartNumbersOnlineGame());
+  }
+  el.querySelector('#menuBtn2').addEventListener('click', ()=>{ stopNumbersTimer(); leaveOnlineGame(); });
   return el;
 }
 
