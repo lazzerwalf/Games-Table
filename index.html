@@ -1034,6 +1034,9 @@ class TrumpsGame{
     this.trumpCallerId = null;
     this.trickComplete = false; // a trick just finished and is being shown before clearing
     this.pendingTrickWinnerId = null;
+    this.awaitingCut = false; // tied on tricks - players are cutting the deck to decide the caller
+    this.cutContenderIds = [];
+    this.cutDraws = [];
     this.gameOver = false;
     this.winner = null;
   }
@@ -1071,6 +1074,9 @@ class TrumpsGame{
     this.roundComplete = false;
     this.trickComplete = false;
     this.pendingTrickWinnerId = null;
+    this.awaitingCut = false;
+    this.cutContenderIds = [];
+    this.cutDraws = [];
 
     const dealerPos = this.roundOrder.indexOf(this.dealerId);
     this.currentIndex = (dealerPos+1) % this.roundOrder.length;
@@ -1176,24 +1182,61 @@ class TrumpsGame{
       this.trumpCallerId = contenders[0].id;
       this.log.push(`${contenders[0].name} calls next round's trumps.`);
     } else {
-      // Order the tied players starting from the dealer, going clockwise around the table.
-      const dealerPos = this.seatOrder.indexOf(this.dealerId);
-      const orderedContenders = [];
-      for(let i=0;i<this.seatOrder.length;i++){
-        const seatId = this.seatOrder[(dealerPos+i)%this.seatOrder.length];
-        const c = contenders.find(p=>p.id===seatId);
-        if(c) orderedContenders.push(c);
-      }
-      let deck, draws, top;
-      do{
-        deck = shuffle(createDeck());
-        draws = orderedContenders.map(p=>({player:p, card: deck.pop()}));
-        const maxRank = Math.max(...draws.map(d=>RANKS.indexOf(d.card.rank)));
-        top = draws.filter(d=>RANKS.indexOf(d.card.rank)===maxRank);
-      } while(top.length>1);
-      this.trumpCallerId = top[0].player.id;
-      this.log.push(`Tie for most tricks — cutting the deck (starting with the dealer, clockwise): ${draws.map(d=>d.player.name+' drew '+d.card.rank+SUIT_SYM[d.card.suit]).join(', ')}. ${top[0].player.name} wins the cut.`);
+      this.startCutTheDeck(contenders);
     }
+  }
+
+  // Order a set of players starting from the dealer, going clockwise around the table.
+  orderFromDealer(players){
+    const dealerPos = this.seatOrder.indexOf(this.dealerId);
+    const ordered = [];
+    for(let i=0;i<this.seatOrder.length;i++){
+      const seatId = this.seatOrder[(dealerPos+i)%this.seatOrder.length];
+      const p = players.find(pl=>pl.id===seatId);
+      if(p) ordered.push(p);
+    }
+    return ordered;
+  }
+
+  startCutTheDeck(contenders){
+    const ordered = this.orderFromDealer(contenders);
+    this.awaitingCut = true;
+    this.cutContenderIds = ordered.map(p=>p.id);
+    this.cutDraws = [];
+    this.log.push(`Tie for most tricks between ${ordered.map(p=>p.name).join(', ')} — cutting the deck to decide who calls trumps.`);
+  }
+
+  // Called once per player, in turn, as they cut the deck. Returns {done:false} while more
+  // players still need to cut, or {done:true, winnerId, retie} once this cutting pass resolves.
+  cutDeck(playerId){
+    if(!this.awaitingCut) return null;
+    const expectedId = this.cutContenderIds[this.cutDraws.length];
+    if(playerId !== expectedId) throw new Error('Not your turn to cut');
+    const deck = shuffle(createDeck());
+    const card = deck[0];
+    this.cutDraws.push({playerId, card});
+    const player = this.getPlayer(playerId);
+    this.log.push(`${player.name} cuts the deck: ${card.rank}${SUIT_SYM[card.suit]}.`);
+
+    if(this.cutDraws.length < this.cutContenderIds.length){
+      return {done:false};
+    }
+
+    const maxRank = Math.max(...this.cutDraws.map(d=>RANKS.indexOf(d.card.rank)));
+    const topDraws = this.cutDraws.filter(d=>RANKS.indexOf(d.card.rank)===maxRank);
+    if(topDraws.length>1){
+      const tiedPlayers = topDraws.map(d=>this.getPlayer(d.playerId));
+      this.log.push(`Still tied between ${tiedPlayers.map(p=>p.name).join(', ')} — cutting again.`);
+      const ordered = this.orderFromDealer(tiedPlayers);
+      this.cutContenderIds = ordered.map(p=>p.id);
+      this.cutDraws = [];
+      return {done:false, retie:true};
+    }
+
+    this.trumpCallerId = topDraws[0].playerId;
+    this.awaitingCut = false;
+    this.log.push(`${this.getPlayer(this.trumpCallerId).name} wins the cut and calls next round's trumps.`);
+    return {done:true, winnerId:this.trumpCallerId};
   }
 
   // Called once the caller has seen their newly-dealt hand and picked a suit.
@@ -5956,12 +5999,81 @@ function renderTrumpsRoundCompleteModal(){
         <tr><th>Player</th><th>Tricks</th></tr>
         ${rows}
       </table>
-      ${caller ? `<p style="text-align:center;font-size:13px;color:#cfe4da;opacity:.85;margin-top:14px;">${caller.name} will call the next trump suit.</p>` : ''}
-      <button class="primary-btn" id="continueBtn">Continue</button>
+      <div class="cut-the-deck-area"></div>
+      ${(!game.awaitingCut && caller) ? `<p style="text-align:center;font-size:13px;color:#cfe4da;opacity:.85;margin-top:14px;">${caller.name} will call the next trump suit.</p>` : ''}
+      ${!game.awaitingCut ? '<button class="primary-btn" id="continueBtn">Continue</button>' : ''}
     </div>
   `;
-  overlay.querySelector('#continueBtn').addEventListener('click', ()=> proceedAfterTrumpsRound());
+  if(!game.awaitingCut){
+    overlay.querySelector('#continueBtn').addEventListener('click', ()=> proceedAfterTrumpsRound());
+  } else {
+    const area = overlay.querySelector('.cut-the-deck-area');
+    area.innerHTML = `<h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:var(--gold-bright);margin:18px 0 12px;text-align:center;">Cutting the deck</h3>`;
+
+    const drawsRow = document.createElement('div');
+    drawsRow.style.cssText = 'display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:14px;';
+    game.cutDraws.forEach(d=>{
+      const player = game.getPlayer(d.playerId);
+      const col = document.createElement('div');
+      col.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:4px;';
+      col.appendChild(makeCardEl(d.card, 'mini'));
+      const label = document.createElement('div');
+      label.style.cssText = 'font-size:11px;color:#cfe4da;opacity:.8;';
+      label.textContent = player.name;
+      col.appendChild(label);
+      drawsRow.appendChild(col);
+    });
+    area.appendChild(drawsRow);
+
+    const nextId = game.cutContenderIds[game.cutDraws.length];
+    const nextPlayer = game.getPlayer(nextId);
+    const deckWrap = document.createElement('div');
+    deckWrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:10px;';
+    const prompt = document.createElement('div');
+    prompt.style.cssText = 'font-size:13px;color:#cfe4da;opacity:.9;text-align:center;';
+    prompt.textContent = nextPlayer.isBot ? `${nextPlayer.name} is cutting the deck…` : `${nextPlayer.name}, tap the deck to cut it.`;
+    deckWrap.appendChild(prompt);
+    const deckEl = makeCardEl({back:true}, 'normal');
+    if(!nextPlayer.isBot && !uiLock){
+      deckEl.style.cursor = 'pointer';
+      deckEl.classList.add('playable');
+      deckEl.addEventListener('click', ()=> onTrumpsCutDeck(nextPlayer.id));
+    }
+    deckWrap.appendChild(deckEl);
+    area.appendChild(deckWrap);
+  }
   return overlay;
+}
+
+function onTrumpsCutDeck(playerId){
+  if(uiLock) return;
+  let result;
+  try{ result = game.cutDeck(playerId); } catch(e){ return; }
+  sfxCardFlip();
+  uiLock = true;
+  render();
+  setTimeout(()=>{
+    uiLock = false;
+    render();
+    if(game.awaitingCut) maybeRunTrumpsCutBot();
+  }, 1300);
+}
+
+function maybeRunTrumpsCutBot(){
+  if(!game || !game.awaitingCut || uiLock) return;
+  const nextId = game.cutContenderIds[game.cutDraws.length];
+  const player = game.getPlayer(nextId);
+  if(!player.isBot) return;
+  uiLock = true;
+  render();
+  setTimeout(()=>{
+    let result;
+    try{ result = game.cutDeck(nextId); } catch(e){ uiLock=false; return; }
+    sfxCardFlip();
+    uiLock = false;
+    render();
+    if(game.awaitingCut) maybeRunTrumpsCutBot();
+  }, 1000);
 }
 
 function proceedAfterTrumpsRound(){
@@ -6051,6 +6163,7 @@ function handleTrumpsPlayResult(result){
       uiLock = false;
       if(game.gameOver) sfxWin();
       afterTrumpsAction();
+      if(game.awaitingCut) maybeRunTrumpsCutBot();
     }, 1800);
   } else {
     uiLock = false;
