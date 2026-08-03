@@ -1686,7 +1686,7 @@ class BragGame{
       p.rawHand = deck.splice(0, this.dealSize);
       p.hands = [];
       p.leftover = [];
-      p.bonusPoints = checkFourOfAKindBonus(p.rawHand) ? 10 : 0;
+      p.bonusPoints = 0; // computed once hands are finalized - see resolveRound()
       p.roundPointsWon = 0;
       p.submitted = false;
     });
@@ -1745,10 +1745,18 @@ class BragGame{
         this.slotResults.push({slot, winners:best.map(p=>p.id), uncontested:false, tie:best.length>1});
       }
     }
-    this.players.forEach(p=>{ if(p.bonusPoints>0) p.score += p.bonusPoints; });
+    // 4-of-a-kind bonus: counts cards actually placed into hands (across all of a player's formed
+    // hands), not just whatever happened to be in their raw deal - e.g. A-A-A as one hand plus the
+    // 4th Ace used in a separate A-2-3 hand still counts, but an unused 4th card sitting in the
+    // trash pile does not.
+    this.players.forEach(p=>{
+      const inPlay = [].concat(...p.hands);
+      p.bonusPoints = checkFourOfAKindBonus(inPlay) ? 10 : 0;
+      if(p.bonusPoints>0) p.score += p.bonusPoints;
+    });
 
     this.players.forEach(p=>{
-      if(p.bonusPoints>0) this.log.push(`${p.name} held all 4 of a rank — +10 bonus points!`);
+      if(p.bonusPoints>0) this.log.push(`${p.name} had all 4 of a rank in play — +10 bonus points!`);
     });
     this.slotResults.forEach(r=>{
       if(r.tie) this.log.push(`Hand ${r.slot+1}: tied, no one scores.`);
