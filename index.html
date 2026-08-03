@@ -398,6 +398,23 @@
   .brag-category-label{font-size:10.5px;color:#cfe4da;opacity:.85;}
   .brag-bonus-badge{display:inline-block;margin-top:6px;background:var(--gold);color:#1c1c1c;font-weight:700;font-size:10.5px;padding:2px 8px;border-radius:20px;}
   .playing-card.brag-four-kind{box-shadow:0 0 0 2px var(--red), 0 2px 8px rgba(0,0,0,.3);}
+
+  /* higher or lower */
+  .hl-table{display:flex;align-items:center;justify-content:center;gap:28px;margin:30px 0 20px;flex-wrap:wrap;}
+  .hl-deck-count{text-align:center;font-size:11px;color:#cfe4da;opacity:.7;margin-top:6px;}
+  .hl-current-card{transform:scale(1.6);margin:0 20px;}
+  .hl-guess-row{display:flex;gap:16px;justify-content:center;margin:24px 0 10px;}
+  .hl-guess-btn{
+    display:flex;flex-direction:column;align-items:center;gap:4px;padding:16px 28px;border-radius:14px;
+    background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);color:var(--cream);cursor:pointer;font-size:14px;
+  }
+  .hl-guess-btn:disabled{opacity:.3;cursor:not-allowed;}
+  .hl-guess-btn .arrow{font-size:26px;line-height:1;}
+  .hl-result-banner{text-align:center;font-family:'Fraunces',serif;font-size:20px;font-weight:700;margin:14px 0;}
+  .hl-result-banner.correct{color:var(--gold-bright);}
+  .hl-result-banner.wrong{color:var(--red);}
+  .hl-result-banner.tie{color:#cfe4da;}
+  .hl-turn-banner{text-align:center;font-size:14px;color:#cfe4da;opacity:.85;margin-bottom:6px;}
   .brag-pool{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin:14px 0;}
   .brag-pool-card{cursor:pointer;transition:transform .1s ease;}
   .brag-pool-card.selected{transform:translateY(-8px);}
@@ -1862,6 +1879,75 @@ function onlineBragEndGame(g){
   g.winner = g.players.filter(p=>p.score===maxScore);
 }
 
+/* ======================= HIGHER OR LOWER ENGINE ======================= */
+const HL_RANK_VALUE = {'A':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':11,'Q':12,'K':13};
+
+class HigherLowerGame{
+  constructor(playerDefs){
+    this.players = playerDefs.map(p=>({...p, score:0}));
+    this.seatOrder = this.players.map(p=>p.id);
+    this.currentIndex = Math.floor(Math.random()*this.seatOrder.length);
+    this.deck = shuffle(createDeck());
+    this.discardPile = [];
+    this.currentCard = this.deck.pop();
+    this.lastGuessResult = null; // {guess, result, revealedCard} - for the reveal pause
+    this.log = [];
+    this.gameOver = false;
+    this.winner = null;
+    this.log.push(`${this.currentPlayer().name} goes first. First card up: ${this.currentCard.rank}${SUIT_SYM[this.currentCard.suit]}.`);
+  }
+
+  currentPlayer(){ return this.getPlayer(this.seatOrder[this.currentIndex]); }
+  getPlayer(id){ return this.players.find(p=>p.id===id); }
+
+  drawCard(){
+    if(this.deck.length===0){
+      this.deck = shuffle(this.discardPile);
+      this.discardPile = [];
+    }
+    return this.deck.pop();
+  }
+
+  // guess: 'higher' | 'lower'. Returns 'correct' | 'wrong' | 'tie'.
+  makeGuess(guess){
+    const prevCard = this.currentCard;
+    const newCard = this.drawCard();
+    this.discardPile.push(prevCard);
+
+    const prevValue = HL_RANK_VALUE[prevCard.rank];
+    const newValue = HL_RANK_VALUE[newCard.rank];
+    const player = this.currentPlayer();
+
+    let result;
+    if(newValue===prevValue){
+      result = 'tie';
+      this.log.push(`${player.name} turned ${newCard.rank}${SUIT_SYM[newCard.suit]} — same rank, turn ends.`);
+    } else if(guess==='higher' ? newValue>prevValue : newValue<prevValue){
+      result = 'correct';
+      player.score += 1;
+      this.log.push(`${player.name} guessed ${guess} and turned ${newCard.rank}${SUIT_SYM[newCard.suit]} — correct! (${player.score} pts)`);
+    } else {
+      result = 'wrong';
+      this.log.push(`${player.name} guessed ${guess} and turned ${newCard.rank}${SUIT_SYM[newCard.suit]} — wrong, turn ends.`);
+    }
+
+    this.currentCard = newCard;
+    this.lastGuessResult = {guess, result, revealedCard:newCard, playerId:player.id};
+
+    if(result!=='correct'){
+      this.currentIndex = (this.currentIndex+1) % this.seatOrder.length;
+    }
+
+    const maxScore = Math.max(...this.players.map(p=>p.score));
+    if(maxScore>=50){
+      this.gameOver = true;
+      this.winner = this.players.filter(p=>p.score===maxScore);
+      this.log.push(`${this.winner.map(w=>w.name).join(' & ')} reached ${maxScore} points and won!`);
+    }
+    return result;
+  }
+}
+
 /* ======================= APP / UI ======================= */
 const app = document.getElementById('app');
 let game = null;
@@ -2207,10 +2293,11 @@ function maybeDriveOnlineBotTurn(){
   else if(onlineRoomState.gameType==='black5') maybeDriveOnlineBlack5BotTurn();
   else if(onlineRoomState.gameType==='sevens') maybeDriveOnlineSevensBotTurn();
   else if(onlineRoomState.gameType==='bonk') maybeDriveOnlineBonkBotTurn();
+  else if(onlineRoomState.gameType==='higherlower') maybeDriveOnlineHLBotTurn();
   else maybeDriveOnlineGreedyPigBotTurn();
 }
 
-function maxSeatsForGameType(gt){ return (gt==='black5'||gt==='numbers'||gt==='brag') ? 4 : 6; }
+function maxSeatsForGameType(gt){ return (gt==='black5'||gt==='numbers'||gt==='brag'||gt==='higherlower') ? 4 : 6; }
 
 function maybeDriveOnlineGreedyPigBotTurn(){
   if(!onlineMode || !onlineRoomState || onlineRoomState.phase!=='playing' || !onlineRoomState.game) return;
@@ -2304,6 +2391,7 @@ const GAMES = [
   {id:'trumps', name:'Trumps', active:true, icon:'♠️👑', desc:"Follow suit or trump it. Win no tricks in a round and you're out — last player standing wins."},
   {id:'numbers', name:'Numbers', active:true, icon:'🔢', desc:'Pick large and small numbers, then get as close as you can to a random target using +, −, ×, ÷.'},
   {id:'brag', name:'3 Card Brag', active:true, icon:'🂡👑', desc:'Sort your dealt cards into the best 3-card hands you can. Best hand plays best hand — first to 101 wins.'},
+  {id:'higherlower', name:'Higher or Lower', active:true, icon:'🔺🔻', desc:'Guess if the next card is higher or lower. Keep going until you get it wrong. First to 50 points wins.'},
 ];
 
 function render(){
@@ -2335,6 +2423,10 @@ function render(){
     app.innerHTML=''; app.appendChild(renderBragOnlineScreen());
     return;
   }
+  if(activeGameId==='higherlower-online'){
+    app.innerHTML=''; app.appendChild(renderHigherLowerOnlineScreen());
+    return;
+  }
   if(!game){
     app.innerHTML = '';
     app.appendChild(revealedForId==='menu-setup' ? renderSetup() : renderMenu());
@@ -2348,6 +2440,7 @@ function render(){
   else if(activeGameId==='trumps') app.appendChild(renderTrumpsScreen());
   else if(activeGameId==='numbers') app.appendChild(renderNumbersScreen());
   else if(activeGameId==='brag') app.appendChild(renderBragScreen());
+  else if(activeGameId==='higherlower') app.appendChild(renderHigherLowerScreen());
   else app.appendChild(renderGame());
 }
 
@@ -2425,12 +2518,13 @@ function renderSetup(){
       : pendingGameId==='trumps' ? renderTrumpsRulesPanel()
       : pendingGameId==='numbers' ? renderNumbersRulesPanel()
       : pendingGameId==='brag' ? renderBragRulesPanel()
+      : pendingGameId==='higherlower' ? renderHigherLowerRulesPanel()
       : renderRulesPanel();
     tabBody.appendChild(rulesPanel);
     return el;
   }
 
-  if(['greedypig','pairs','black5','sevens','bonk','brag'].includes(pendingGameId)){
+  if(['greedypig','pairs','black5','sevens','bonk','brag','higherlower'].includes(pendingGameId)){
     const modeRow = document.createElement('div');
     modeRow.style.cssText = 'display:flex;gap:8px;margin-bottom:18px;';
     modeRow.innerHTML = `
@@ -2447,6 +2541,7 @@ function renderSetup(){
         : pendingGameId==='sevens' ? renderSevensOnlineSetupPanel()
         : pendingGameId==='bonk' ? renderBonkOnlineSetupPanel()
         : pendingGameId==='brag' ? renderBragOnlineSetupPanel()
+        : pendingGameId==='higherlower' ? renderHigherLowerOnlineSetupPanel()
         : renderBlack5OnlineSetupPanel();
       tabBody.appendChild(panel);
       return el;
@@ -2467,8 +2562,10 @@ function renderSetup(){
     ? '2–6 players. Pick your numbers, then get as close as you can to the target in 30 seconds. Highest score wins.'
     : pendingGameId==='brag'
     ? "2–4 players. Your cards get auto-sorted into the best hands possible — best hand plays best hand. First to 101 wins."
+    : pendingGameId==='higherlower'
+    ? "2–4 players. Guess higher or lower than the card on top — keep going until you're wrong. First to 50 points wins."
     : '2–4 players. Everyone starts with 5 points; you lose points based on the cards left in your hand when a round ends.';
-  const startLabel = pendingGameId==='greedypig' ? 'Start rolling' : pendingGameId==='pairs' ? 'Lay the board' : pendingGameId==='sevens' ? 'Deal everyone in' : pendingGameId==='bonk' ? 'Deal the cards' : pendingGameId==='trumps' ? 'Deal the cards' : pendingGameId==='numbers' ? 'Start the game' : pendingGameId==='brag' ? 'Deal the cards' : 'Deal the cards';
+  const startLabel = pendingGameId==='greedypig' ? 'Start rolling' : pendingGameId==='pairs' ? 'Lay the board' : pendingGameId==='sevens' ? 'Deal everyone in' : pendingGameId==='bonk' ? 'Deal the cards' : pendingGameId==='trumps' ? 'Deal the cards' : pendingGameId==='numbers' ? 'Start the game' : pendingGameId==='brag' ? 'Deal the cards' : pendingGameId==='higherlower' ? 'Turn the first card' : 'Deal the cards';
 
   const setupWrap = document.createElement('div');
   setupWrap.innerHTML = `
@@ -2568,6 +2665,10 @@ function renderSetup(){
       game.startRound();
       activeGameId = 'brag';
       revealedForId = null;
+    } else if(pendingGameId==='higherlower'){
+      game = new HigherLowerGame(defs);
+      activeGameId = 'higherlower';
+      revealedForId = null;
     } else {
       game = new BlackFiveGame(defs);
       game.startRound();
@@ -2583,6 +2684,7 @@ function renderSetup(){
     else if(activeGameId==='trumps') maybeRunTrumpsBotTurn();
     else if(activeGameId==='numbers') maybeRunNumbersBotStep();
     else if(activeGameId==='brag'){ /* no-op: hands are auto-sorted, nothing for a bot to decide */ }
+    else if(activeGameId==='higherlower') maybeRunHLBotTurn();
     else maybeRunBotTurn();
   });
 
@@ -8700,6 +8802,616 @@ function renderBragOnlineGameOver(el, g){
     el.querySelector('#rematchBtn').addEventListener('click', ()=> restartBragOnlineGame());
   }
   el.querySelector('#menuBtn2').addEventListener('click', ()=>{ bragArrangeState=null; leaveOnlineGame(); });
+  return el;
+}
+
+/* ======================= HIGHER OR LOWER UI (local) ======================= */
+function renderHigherLowerRulesPanel(){
+  const wrap = document.createElement('div');
+  wrap.className = 'rules-content';
+  wrap.innerHTML = `
+    <h4>Setup</h4>
+    <p>2–4 players. The deck sits face-down in the middle and the top card is turned face-up to start. A random player goes first, then play passes clockwise.</p>
+
+    <h4>How a turn works</h4>
+    <p>On your turn, guess whether the next card will be higher or lower than the one showing. Ace is the lowest card, King is the highest. Guess correctly and you score a point and keep going on the new card. Guess wrong and your turn ends. If the new card is the same rank as the one showing, your turn also ends, but you don't lose anything for it.</p>
+
+    <h4>Scoring</h4>
+    <p>1 point per correct guess. First to 50 points wins. If the deck runs out, the used cards are reshuffled and play continues.</p>
+  `;
+  return wrap;
+}
+
+let hlShowingResult = false;
+
+function renderHigherLowerScreen(){
+  const el = document.createElement('div');
+  el.className = 'game-screen';
+  if(game.gameOver) return renderHLGameOver(el);
+
+  el.innerHTML = `
+    <div class="topbar">
+      <div class="topbar-title">Higher or Lower</div>
+      <div class="topbar-actions"><button id="endGameBtn" class="ghost-btn">End game</button><button id="menuBtn">Main menu</button></div>
+    </div>
+    <div class="table-area">
+      <div class="table-main" style="overflow-y:auto;">
+        <div class="hl-wrap" style="padding:16px;"></div>
+      </div>
+      <details class="side-panel">
+        <summary>Players &amp; Table talk</summary>
+        <div class="side-panel-body">
+          <h3>Players</h3>
+          <div class="score-list"></div>
+          <h3>Table talk</h3>
+          <div class="log-feed"></div>
+        </div>
+      </details>
+    </div>
+  `;
+  el.querySelector('#menuBtn').addEventListener('click', ()=>{
+    if(confirm('Leave this game and return to the menu?')){
+      game=null; activeGameId=null; revealedForId=null; seatConfigs=[]; render();
+    }
+  });
+  el.querySelector('#endGameBtn').addEventListener('click', ()=>{
+    if(confirm('End the game now? Whoever has the most points will be declared the winner.')){
+      game.gameOver = true;
+      const maxScore = Math.max(...game.players.map(p=>p.score));
+      game.winner = game.players.filter(p=>p.score===maxScore);
+      sfxWin();
+      render();
+    }
+  });
+  el.querySelector('.topbar-actions').prepend(renderMuteControl());
+
+  const wrap = el.querySelector('.hl-wrap');
+  const cp = game.currentPlayer();
+
+  const turnBanner = document.createElement('div');
+  turnBanner.className = 'hl-turn-banner';
+  turnBanner.textContent = hlShowingResult ? '\u00A0' : `${cp.name}'s turn`;
+  wrap.appendChild(turnBanner);
+
+  if(hlShowingResult && game.lastGuessResult){
+    const r = game.lastGuessResult;
+    const banner = document.createElement('div');
+    banner.className = 'hl-result-banner ' + r.result;
+    banner.textContent = r.result==='correct' ? 'Correct!' : r.result==='wrong' ? 'Wrong!' : 'Same rank — turn ends';
+    wrap.appendChild(banner);
+  }
+
+  const tableRow = document.createElement('div');
+  tableRow.className = 'hl-table';
+  const deckCol = document.createElement('div');
+  deckCol.style.textAlign = 'center';
+  deckCol.appendChild(makeCardEl({back:true}, 'normal'));
+  const deckCount = document.createElement('div');
+  deckCount.className = 'hl-deck-count';
+  deckCount.textContent = `${game.deck.length} left`;
+  deckCol.appendChild(deckCount);
+  tableRow.appendChild(deckCol);
+
+  const currentCardEl = makeCardEl(game.currentCard, 'normal');
+  currentCardEl.classList.add('hl-current-card');
+  tableRow.appendChild(currentCardEl);
+  wrap.appendChild(tableRow);
+
+  if(!hlShowingResult && !cp.isBot){
+    const guessRow = document.createElement('div');
+    guessRow.className = 'hl-guess-row';
+    const lowerBtn = document.createElement('button');
+    lowerBtn.className = 'hl-guess-btn';
+    lowerBtn.innerHTML = `<span class="arrow">▼</span>Lower`;
+    lowerBtn.disabled = game.currentCard.rank==='A';
+    lowerBtn.addEventListener('click', ()=> onHLGuess('lower'));
+    guessRow.appendChild(lowerBtn);
+    const higherBtn = document.createElement('button');
+    higherBtn.className = 'hl-guess-btn';
+    higherBtn.innerHTML = `<span class="arrow">▲</span>Higher`;
+    higherBtn.disabled = game.currentCard.rank==='K';
+    higherBtn.addEventListener('click', ()=> onHLGuess('higher'));
+    guessRow.appendChild(higherBtn);
+    wrap.appendChild(guessRow);
+  } else if(!hlShowingResult && cp.isBot){
+    const waiting = document.createElement('div');
+    waiting.style.cssText = 'text-align:center;font-size:13px;color:#cfe4da;opacity:.75;margin-top:10px;';
+    waiting.textContent = `${cp.name} is thinking…`;
+    wrap.appendChild(waiting);
+  }
+
+  const scoreList = el.querySelector('.score-list');
+  [...game.players].sort((a,b)=>b.score-a.score).forEach(p=>{
+    const item = document.createElement('div');
+    item.className = 'score-item' + (!p.isBot?' you':'');
+    item.innerHTML = `<span>${p.name}${p.isBot?' 🤖':''}${p.id===cp.id?' 👉':''}</span><span>${p.score} pt${p.score!==1?'s':''}</span>`;
+    scoreList.appendChild(item);
+  });
+  const logFeed = el.querySelector('.log-feed');
+  [...game.log].slice(-60).reverse().forEach(line=>{
+    const d = document.createElement('div');
+    d.textContent = line;
+    logFeed.appendChild(d);
+  });
+  setupSidePanelToggle(el);
+  return el;
+}
+
+function onHLGuess(guess){
+  if(hlShowingResult) return;
+  sfxSelect();
+  const result = game.makeGuess(guess);
+  hlShowingResult = true;
+  render();
+  setTimeout(()=>{
+    hlShowingResult = false;
+    if(result==='correct') sfxCardFlip();
+    if(game.gameOver) sfxWin();
+    render();
+    maybeRunHLBotTurn();
+  }, 1400);
+}
+
+function hlBotChooseGuess(currentCard){
+  const val = HL_RANK_VALUE[currentCard.rank];
+  if(val<7) return 'higher';
+  if(val>7) return 'lower';
+  return Math.random()<0.5 ? 'higher' : 'lower';
+}
+
+function maybeRunHLBotTurn(){
+  if(!game || game.gameOver || hlShowingResult) return;
+  const cp = game.currentPlayer();
+  if(!cp.isBot) return;
+  setTimeout(()=>{
+    if(!game || game.gameOver || hlShowingResult) return;
+    const cp2 = game.currentPlayer();
+    if(!cp2.isBot) return;
+    const guess = hlBotChooseGuess(game.currentCard);
+    const result = game.makeGuess(guess);
+    hlShowingResult = true;
+    render();
+    setTimeout(()=>{
+      hlShowingResult = false;
+      if(game.gameOver) sfxWin();
+      render();
+      maybeRunHLBotTurn();
+    }, 1400);
+  }, 900);
+}
+
+function renderHLGameOver(el){
+  const winners = game.winner || [];
+  const title = winners.length===1 ? `${winners[0].name} wins!` : `${winners.map(w=>w.name).join(' & ')} tie!`;
+  const rows = [...game.players].sort((a,b)=>b.score-a.score)
+    .map(p=>`<tr><td>${p.name}${winners.some(w=>w.id===p.id)?' 🏆':''}</td><td>${p.score}</td></tr>`).join('');
+  const logHTML = [...game.log].slice(-60).reverse().map(line=>`<div>${line}</div>`).join('');
+  el.innerHTML = `
+    <div class="menu-screen">
+      <div class="menu-eyebrow">Game over</div>
+      <h1 class="menu-title">${title}</h1>
+      <div style="width:100%;max-width:420px;text-align:left;margin:14px 0 22px;">
+        <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:var(--gold-bright);margin:0 0 10px;">Final scores</h3>
+        <table class="round-results" style="width:100%;">
+          <tr><th>Player</th><th>Points</th></tr>
+          ${rows}
+        </table>
+      </div>
+      <div style="width:100%;max-width:420px;text-align:left;margin:0 0 28px;">
+        <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:var(--gold-bright);margin:0 0 10px;">Table talk</h3>
+        <div style="max-height:220px;overflow-y:auto;background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px 14px;font-size:12px;color:#cfe4da;opacity:.9;display:flex;flex-direction:column;gap:5px;">
+          ${logHTML}
+        </div>
+      </div>
+      <div style="display:flex;gap:14px;">
+        <button class="primary-btn" id="rematchBtn" style="width:auto;padding:14px 26px;">Rematch</button>
+        <button class="ghost-btn" id="menuBtn2">Main menu</button>
+      </div>
+    </div>
+  `;
+  el.querySelector('#rematchBtn').addEventListener('click', ()=>{
+    const defs = game.players.map(p=>({id:p.id,name:p.name,isBot:p.isBot}));
+    game = new HigherLowerGame(defs);
+    hlShowingResult = false;
+    render();
+    maybeRunHLBotTurn();
+  });
+  el.querySelector('#menuBtn2').addEventListener('click', ()=>{
+    game=null; activeGameId=null; revealedForId=null; seatConfigs=[]; render();
+  });
+  return el;
+}
+
+/* ======================= HIGHER OR LOWER ONLINE UI ======================= */
+function serializeHLGame(g){
+  return {
+    players: g.players.map(p=>({id:p.id, name:p.name, isBot:p.isBot, score:p.score, deviceId:p.deviceId||null})),
+    seatOrder: g.seatOrder, currentIndex: g.currentIndex,
+    deck: g.deck, discardPile: g.discardPile, currentCard: g.currentCard,
+    lastGuessResult: g.lastGuessResult,
+    gameOver: g.gameOver, winnerIds: g.winner ? g.winner.map(w=>w.id) : null,
+    log: g.log.slice(-40),
+  };
+}
+function reconstituteHLGame(s){
+  const g = Object.create(HigherLowerGame.prototype);
+  g.players = s.players.map(p=>({...p}));
+  g.seatOrder = s.seatOrder; g.currentIndex = s.currentIndex;
+  g.deck = s.deck; g.discardPile = s.discardPile; g.currentCard = s.currentCard;
+  g.lastGuessResult = s.lastGuessResult;
+  g.gameOver = s.gameOver; g.log = s.log ? [...s.log] : [];
+  g.winner = (s.gameOver && s.winnerIds) ? g.players.filter(p=>s.winnerIds.includes(p.id)) : null;
+  return g;
+}
+
+function renderHigherLowerOnlineSetupPanel(){
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `
+    <div class="rules-note" style="margin-bottom:20px;">Play with people on other phones: one of you creates a room and shares the 4-letter code, the others join with it. Bots are welcome to fill empty seats.</div>
+    <div style="margin-bottom:26px;">
+      <h4 style="font-family:'Fraunces',serif;font-size:15px;color:var(--gold-bright);margin:0 0 10px;">Create a room</h4>
+      <input class="seat-name-input" id="hostNameInput" placeholder="Your name" maxlength="16" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
+      <button class="primary-btn" id="createRoomBtn">Create room</button>
+    </div>
+    <div>
+      <h4 style="font-family:'Fraunces',serif;font-size:15px;color:var(--gold-bright);margin:0 0 10px;">Join a room</h4>
+      <input class="seat-name-input" id="guestNameInput" placeholder="Your name" maxlength="16" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
+      <input class="seat-name-input" id="roomCodeInput" placeholder="Room code" style="margin-bottom:10px;width:100%;box-sizing:border-box;text-transform:uppercase;letter-spacing:.1em;" maxlength="4">
+      <button class="primary-btn" id="joinRoomBtn">Join room</button>
+    </div>
+  `;
+  wrap.querySelector('#createRoomBtn').addEventListener('click', ()=>{
+    const name = wrap.querySelector('#hostNameInput').value.trim() || 'Host';
+    createHigherLowerOnlineRoom(name);
+  });
+  wrap.querySelector('#joinRoomBtn').addEventListener('click', ()=>{
+    const name = wrap.querySelector('#guestNameInput').value.trim() || 'Player';
+    const code = wrap.querySelector('#roomCodeInput').value;
+    joinHigherLowerOnlineRoom(code, name);
+  });
+  return wrap;
+}
+
+async function createHigherLowerOnlineRoom(hostName){
+  if(!hasSharedStorage()){ alert("Couldn't connect to the game server. Check your internet connection and try again."); return; }
+  const code = generateRoomCode();
+  const seatId = 'p_'+myDeviceId.slice(4,9);
+  const room = {
+    gameType: 'higherlower', version: 1, phase: 'lobby', hostDeviceId: myDeviceId, code,
+    lobbySeats: [ {id:seatId, name:(hostName||'Host').slice(0,16), isBot:false, deviceId:myDeviceId} ],
+  };
+  const result = await storageSetSafe(pigRoomKey(code), JSON.stringify(room), true);
+  if(!result){ alert('Could not create the room — check your connection and try again.'); return; }
+  onlineMode = true; onlineRoomCode = code; onlineIsHost = true; onlineRoomState = room;
+  activeGameId = 'higherlower-online';
+  startOnlinePolling();
+  render();
+}
+
+async function joinHigherLowerOnlineRoom(codeRaw, guestName){
+  if(!hasSharedStorage()){ alert("Couldn't connect to the game server. Check your internet connection and try again."); return; }
+  const code = (codeRaw||'').trim().toUpperCase();
+  if(!code){ alert('Enter a room code.'); return; }
+  const res = await storageGetSafe(pigRoomKey(code), true);
+  if(!res){ alert("Couldn't find a room with that code — double check it with your friend."); return; }
+  let room;
+  try{ room = JSON.parse(res.value); } catch(e){ alert('That room looks corrupted — ask your friend to create a new one.'); return; }
+  if(room.gameType!=='higherlower'){ alert('That code belongs to a different game.'); return; }
+  if(room.phase !== 'lobby'){ alert('That game has already started.'); return; }
+  if(!room.lobbySeats.some(s=>s.deviceId===myDeviceId)){
+    if(room.lobbySeats.length>=maxSeatsForGameType('higherlower')){ alert('That room is full.'); return; }
+    const seatId = 'p_'+myDeviceId.slice(4,9);
+    room.lobbySeats.push({id:seatId, name:(guestName||'Player').slice(0,16), isBot:false, deviceId:myDeviceId});
+    room.version = (room.version||1)+1;
+    const writeResult = await storageSetSafe(pigRoomKey(code), JSON.stringify(room), true);
+    if(!writeResult){ alert('Could not join right now — try again.'); return; }
+  }
+  onlineMode = true; onlineRoomCode = code; onlineIsHost = (room.hostDeviceId===myDeviceId); onlineRoomState = room;
+  activeGameId = 'higherlower-online';
+  startOnlinePolling();
+  render();
+}
+
+async function startHigherLowerOnlineGame(){
+  if(!onlineIsHost || !onlineRoomState) return;
+  await refreshOnlineRoomState();
+  const seats = onlineRoomState.lobbySeats;
+  if(seats.length<2){ alert('Need at least 2 players to start.'); render(); return; }
+  const gameInstance = new HigherLowerGame(seats.map(s=>({id:s.id, name:s.name, isBot:s.isBot})));
+  gameInstance.players.forEach((p,i)=>{ p.deviceId = seats[i].deviceId || null; });
+  const newRoom = { ...onlineRoomState, phase:'playing', version: onlineRoomState.version+1, game: serializeHLGame(gameInstance) };
+  const writeResult = await storageSetSafe(pigRoomKey(onlineRoomCode), JSON.stringify(newRoom), true);
+  if(!writeResult){ alert('Could not start the game — try again.'); return; }
+  onlineRoomState = newRoom;
+  render();
+  maybeDriveOnlineHLBotTurn();
+}
+
+async function restartHigherLowerOnlineGame(){
+  if(!onlineIsHost || !onlineRoomState) return;
+  await refreshOnlineRoomState();
+  const newRoom = { ...onlineRoomState, phase:'lobby', version: onlineRoomState.version+1, game:null };
+  const writeResult = await storageSetSafe(pigRoomKey(onlineRoomCode), JSON.stringify(newRoom), true);
+  if(writeResult){ onlineRoomState = newRoom; render(); }
+}
+
+async function writeHLGameState(g){
+  const newRoom = { ...onlineRoomState, version: onlineRoomState.version+1, game: serializeHLGame(g) };
+  const writeResult = await storageSetSafe(pigRoomKey(onlineRoomCode), JSON.stringify(newRoom), true);
+  if(writeResult){ onlineRoomState = newRoom; render(); }
+  else { render(); }
+}
+
+async function onlineHLGuess(guess){
+  if(!onlineRoomState || hlShowingResult) return;
+  await refreshOnlineRoomState();
+  if(!onlineRoomState || !onlineRoomState.game) return;
+  const g = reconstituteHLGame(onlineRoomState.game);
+  if(g.gameOver) { render(); return; }
+  const me = g.currentPlayer();
+  if(me.deviceId !== myDeviceId || me.isBot) { render(); return; }
+  sfxSelect();
+  const result = g.makeGuess(guess);
+  hlShowingResult = true;
+  await writeHLGameState(g);
+  setTimeout(()=>{
+    hlShowingResult = false;
+    if(result==='correct') sfxCardFlip();
+    if(g.gameOver) sfxWin();
+    render();
+    maybeDriveOnlineHLBotTurn();
+  }, 1400);
+}
+
+function maybeDriveOnlineHLBotTurn(){
+  if(!onlineMode || !onlineRoomState || onlineRoomState.phase!=='playing' || !onlineRoomState.game) return;
+  if(onlineRoomState.gameType!=='higherlower') return;
+  if(onlineRoomState.game.gameOver) return;
+  if(!onlineIsHost) return;
+  if(hlShowingResult) return;
+  if(onlineBotTurnInFlight) return;
+  const g = reconstituteHLGame(onlineRoomState.game);
+  const cp = g.currentPlayer();
+  if(!cp.isBot) return;
+  onlineBotTurnInFlight = true;
+  setTimeout(async ()=>{
+    await refreshOnlineRoomState();
+    if(!onlineRoomState.game){ onlineBotTurnInFlight=false; return; }
+    const g2 = reconstituteHLGame(onlineRoomState.game);
+    if(g2.gameOver || g2.currentPlayer().id !== cp.id){ onlineBotTurnInFlight=false; return; }
+    const guess = hlBotChooseGuess(g2.currentCard);
+    const result = g2.makeGuess(guess);
+    hlShowingResult = true;
+    await writeHLGameState(g2);
+    onlineBotTurnInFlight = false;
+    setTimeout(()=>{
+      hlShowingResult = false;
+      if(g2.gameOver) sfxWin();
+      render();
+      maybeDriveOnlineHLBotTurn();
+    }, 1400);
+  }, 900);
+}
+
+function renderHigherLowerOnlineScreen(){
+  const el = document.createElement('div');
+  el.className = 'game-screen';
+  if(!onlineRoomState){
+    activeGameId = null; onlineMode = false;
+    return renderMenu();
+  }
+  if(onlineRoomState.phase==='lobby') return renderHLOnlineLobby(el);
+  const g = reconstituteHLGame(onlineRoomState.game);
+  if(g.gameOver) return renderHLOnlineGameOver(el, g);
+  return renderHLOnlineGame(el, g);
+}
+
+function renderHLOnlineLobby(el){
+  const seats = onlineRoomState.lobbySeats;
+  const maxSeats = maxSeatsForGameType('higherlower');
+  el.innerHTML = `
+    <div class="topbar">
+      <div class="topbar-title">Higher or Lower — Online Lobby</div>
+      <div class="topbar-actions"><button id="leaveBtn">Leave</button></div>
+    </div>
+    <div class="menu-screen" style="justify-content:flex-start;padding-top:50px;">
+      <div class="menu-eyebrow">Room code</div>
+      <h1 class="menu-title" style="letter-spacing:.15em;">${onlineRoomState.code}</h1>
+      <p class="menu-sub">Share this code with your friends. Needs 2–4 players — bots welcome.</p>
+      <div style="width:100%;max-width:360px;margin:10px 0 24px;">
+        <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:var(--gold-bright);margin:0 0 10px;text-align:left;">Players (${seats.length}/${maxSeats})</h3>
+        <div class="score-list"></div>
+      </div>
+      <div id="lobbyActionArea" style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;"></div>
+    </div>
+  `;
+  el.querySelector('#leaveBtn').addEventListener('click', ()=> leaveOnlineGame());
+  const list = el.querySelector('.score-list');
+  seats.forEach(s=>{
+    const item = document.createElement('div');
+    item.className = 'score-item' + (s.deviceId===myDeviceId ? ' you' : '');
+    item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;';
+    const label = document.createElement('span');
+    label.textContent = `${s.name}${s.isBot?' 🤖':''}${s.deviceId===onlineRoomState.hostDeviceId?' — host':''}`;
+    item.appendChild(label);
+    if(onlineIsHost && s.deviceId!==onlineRoomState.hostDeviceId){
+      const removeBtn = document.createElement('button');
+      removeBtn.textContent = '✕';
+      removeBtn.title = s.isBot ? 'Remove bot' : 'Remove player (only if they have left)';
+      removeBtn.style.cssText = 'background:none;border:none;color:#ffb3b8;font-size:15px;padding:2px 6px;cursor:pointer;line-height:1;';
+      removeBtn.addEventListener('click', ()=> removeSeatFromLobby(s.id));
+      item.appendChild(removeBtn);
+    } else {
+      item.appendChild(document.createElement('span'));
+    }
+    list.appendChild(item);
+  });
+  const actionArea = el.querySelector('#lobbyActionArea');
+  if(onlineIsHost){
+    if(seats.length<maxSeats){
+      const addBotBtn = document.createElement('button');
+      addBotBtn.className='ghost-btn';
+      addBotBtn.textContent='Add a bot';
+      addBotBtn.addEventListener('click', ()=> addBotToLobby());
+      actionArea.appendChild(addBotBtn);
+    }
+    const startBtn = document.createElement('button');
+    startBtn.className='primary-btn';
+    startBtn.style.cssText='width:auto;padding:12px 26px;';
+    startBtn.textContent = seats.length<2 ? 'Need at least 2 players' : 'Start game';
+    startBtn.disabled = seats.length<2;
+    startBtn.addEventListener('click', ()=> startHigherLowerOnlineGame());
+    actionArea.appendChild(startBtn);
+  } else {
+    const waiting = document.createElement('div');
+    waiting.style.cssText='color:#cfe4da;opacity:.75;font-size:13px;';
+    waiting.textContent = 'Waiting for the host to start the game…';
+    actionArea.appendChild(waiting);
+  }
+  return el;
+}
+
+function renderHLOnlineGame(el, g){
+  el.innerHTML = `
+    <div class="topbar">
+      <div class="topbar-title">Higher or Lower — Room ${onlineRoomState.code}</div>
+      <div class="topbar-actions"><button id="endGameBtn" class="ghost-btn">End game</button><button id="leaveBtn">Leave</button></div>
+    </div>
+    <div class="table-area">
+      <div class="table-main" style="overflow-y:auto;">
+        <div class="hl-wrap" style="padding:16px;"></div>
+      </div>
+      <details class="side-panel">
+        <summary>Players &amp; Table talk</summary>
+        <div class="side-panel-body">
+          <h3>Players</h3>
+          <div class="score-list"></div>
+          <h3>Table talk</h3>
+          <div class="log-feed"></div>
+        </div>
+      </details>
+    </div>
+  `;
+  el.querySelector('#leaveBtn').addEventListener('click', ()=> leaveOnlineGame());
+  el.querySelector('#endGameBtn').addEventListener('click', async ()=>{
+    if(!confirm('End the game now? Whoever has the most points will be declared the winner.')) return;
+    await refreshOnlineRoomState();
+    const g2 = reconstituteHLGame(onlineRoomState.game);
+    g2.gameOver = true;
+    const maxScore = Math.max(...g2.players.map(p=>p.score));
+    g2.winner = g2.players.filter(p=>p.score===maxScore);
+    sfxWin();
+    await writeHLGameState(g2);
+  });
+  el.querySelector('.topbar-actions').prepend(renderMuteControl());
+
+  const wrap = el.querySelector('.hl-wrap');
+  const cp = g.currentPlayer();
+  const isMyTurn = cp.deviceId===myDeviceId;
+
+  const turnBanner = document.createElement('div');
+  turnBanner.className = 'hl-turn-banner';
+  turnBanner.textContent = hlShowingResult ? '\u00A0' : `${cp.name}'s turn${isMyTurn?' (you)':''}`;
+  wrap.appendChild(turnBanner);
+
+  if(hlShowingResult && g.lastGuessResult){
+    const r = g.lastGuessResult;
+    const banner = document.createElement('div');
+    banner.className = 'hl-result-banner ' + r.result;
+    banner.textContent = r.result==='correct' ? 'Correct!' : r.result==='wrong' ? 'Wrong!' : 'Same rank — turn ends';
+    wrap.appendChild(banner);
+  }
+
+  const tableRow = document.createElement('div');
+  tableRow.className = 'hl-table';
+  const deckCol = document.createElement('div');
+  deckCol.style.textAlign = 'center';
+  deckCol.appendChild(makeCardEl({back:true}, 'normal'));
+  const deckCount = document.createElement('div');
+  deckCount.className = 'hl-deck-count';
+  deckCount.textContent = `${g.deck.length} left`;
+  deckCol.appendChild(deckCount);
+  tableRow.appendChild(deckCol);
+
+  const currentCardEl = makeCardEl(g.currentCard, 'normal');
+  currentCardEl.classList.add('hl-current-card');
+  tableRow.appendChild(currentCardEl);
+  wrap.appendChild(tableRow);
+
+  if(!hlShowingResult && isMyTurn && !cp.isBot){
+    const guessRow = document.createElement('div');
+    guessRow.className = 'hl-guess-row';
+    const lowerBtn = document.createElement('button');
+    lowerBtn.className = 'hl-guess-btn';
+    lowerBtn.innerHTML = `<span class="arrow">▼</span>Lower`;
+    lowerBtn.disabled = g.currentCard.rank==='A';
+    lowerBtn.addEventListener('click', ()=> onlineHLGuess('lower'));
+    guessRow.appendChild(lowerBtn);
+    const higherBtn = document.createElement('button');
+    higherBtn.className = 'hl-guess-btn';
+    higherBtn.innerHTML = `<span class="arrow">▲</span>Higher`;
+    higherBtn.disabled = g.currentCard.rank==='K';
+    higherBtn.addEventListener('click', ()=> onlineHLGuess('higher'));
+    guessRow.appendChild(higherBtn);
+    wrap.appendChild(guessRow);
+  } else if(!hlShowingResult){
+    const waiting = document.createElement('div');
+    waiting.style.cssText = 'text-align:center;font-size:13px;color:#cfe4da;opacity:.75;margin-top:10px;';
+    waiting.textContent = `Waiting for ${cp.name}…`;
+    wrap.appendChild(waiting);
+  }
+
+  const scoreList = el.querySelector('.score-list');
+  [...g.players].sort((a,b)=>b.score-a.score).forEach(p=>{
+    const item = document.createElement('div');
+    item.className = 'score-item' + (p.deviceId===myDeviceId?' you':'');
+    item.innerHTML = `<span>${p.name}${p.isBot?' 🤖':''}${p.id===cp.id?' 👉':''}</span><span>${p.score} pt${p.score!==1?'s':''}</span>`;
+    scoreList.appendChild(item);
+  });
+  const logFeed = el.querySelector('.log-feed');
+  [...g.log].slice(-40).reverse().forEach(line=>{
+    const d = document.createElement('div');
+    d.textContent = line;
+    logFeed.appendChild(d);
+  });
+  setupSidePanelToggle(el);
+  return el;
+}
+
+function renderHLOnlineGameOver(el, g){
+  const winners = g.winner || [];
+  const title = winners.length===1 ? `${winners[0].name} wins!` : `${winners.map(w=>w.name).join(' & ')} tie!`;
+  const scoreRows = [...g.players].sort((a,b)=>b.score-a.score)
+    .map(p=>`<tr><td>${p.name}${winners.some(w=>w.id===p.id)?' 🏆':''}${p.deviceId===myDeviceId?' (you)':''}</td><td>${p.score}</td></tr>`).join('');
+  const logHTML = [...g.log].slice(-60).reverse().map(line=>`<div>${line}</div>`).join('');
+  el.innerHTML = `
+    <div class="menu-screen">
+      <div class="menu-eyebrow">Game over</div>
+      <h1 class="menu-title">${title}</h1>
+      <p class="menu-sub">Room ${onlineRoomState.code}.</p>
+      <div style="width:100%;max-width:420px;text-align:left;margin:14px 0 22px;">
+        <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:var(--gold-bright);margin:0 0 10px;">Final scores</h3>
+        <table class="round-results" style="width:100%;">
+          <tr><th>Player</th><th>Points</th></tr>
+          ${scoreRows}
+        </table>
+      </div>
+      <div style="width:100%;max-width:420px;text-align:left;margin:0 0 28px;">
+        <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:var(--gold-bright);margin:0 0 10px;">Table talk</h3>
+        <div style="max-height:220px;overflow-y:auto;background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px 14px;font-size:12px;color:#cfe4da;opacity:.9;display:flex;flex-direction:column;gap:5px;">
+          ${logHTML}
+        </div>
+      </div>
+      <div style="display:flex;gap:14px;">
+        ${onlineIsHost ? '<button class="primary-btn" id="rematchBtn" style="width:auto;padding:14px 26px;">Back to lobby</button>' : ''}
+        <button class="ghost-btn" id="menuBtn2">Leave</button>
+      </div>
+    </div>
+  `;
+  if(onlineIsHost){
+    el.querySelector('#rematchBtn').addEventListener('click', ()=> restartHigherLowerOnlineGame());
+  }
+  el.querySelector('#menuBtn2').addEventListener('click', ()=> leaveOnlineGame());
   return el;
 }
 
