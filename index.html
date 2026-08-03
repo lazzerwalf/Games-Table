@@ -6584,6 +6584,8 @@ function numbersApplyOp(op, a, b){
   if(op==='÷') return (b>0 && a%b===0) ? a/b : b/a;
 }
 
+function numbersSignature(nums){ return (nums||[]).map(n=>n.id).join(','); }
+
 function startNumbersCalc(numbersArr, timeLimitOverride){
   const nums = numbersArr || game.numbers;
   numbersCalc = {
@@ -6593,6 +6595,7 @@ function startNumbersCalc(numbersArr, timeLimitOverride){
     lastResultId: null,
     timeLeft: timeLimitOverride!==undefined ? timeLimitOverride : numbersTimeLimit,
     timerHandle: null,
+    forNumbers: numbersSignature(nums),
   };
 }
 
@@ -6652,6 +6655,7 @@ function renderNumbersTopbar(el, title){
   el.querySelector('#endGameBtn').addEventListener('click', ()=>{
     if(confirm('End the game now? Whoever has the most points will be declared the winner.')){
       stopNumbersTimer();
+      numbersCalc = null;
       game.endGameNow();
       sfxWin();
       render();
@@ -6719,7 +6723,11 @@ function renderNumbersSolvingScreen(el){
   const solver = game.currentSolver();
   const multiHuman = humanPlayersNumbers().length>1;
 
-  if(!numbersCalc){ stopNumbersTimer(); startNumbersCalc(); }
+  if(!numbersCalc || numbersCalc.forNumbers !== numbersSignature(game.numbers)){
+    stopNumbersTimer();
+    startNumbersCalc();
+    numbersTurnStarted = false;
+  }
 
   if(solver.isBot){
     const wrap = document.createElement('div');
@@ -6900,6 +6908,9 @@ function renderNumbersRevealScreen(el){
     list.appendChild(row);
   });
   wrap.querySelector('#nextRoundBtn').addEventListener('click', ()=>{
+    stopNumbersTimer();
+    numbersCalc = null;
+    numbersTurnStarted = false;
     game.startRound();
     render();
     maybeRunNumbersBotStep();
@@ -6937,6 +6948,9 @@ function renderNumbersGameOver(el){
     </div>
   `;
   el.querySelector('#rematchBtn').addEventListener('click', ()=>{
+    stopNumbersTimer();
+    numbersCalc = null;
+    numbersTurnStarted = false;
     const defs = game.players.map(p=>({id:p.id,name:p.name,isBot:p.isBot}));
     game = new CountdownNumbersGame(defs);
     game.startRound();
@@ -7383,7 +7397,11 @@ function renderNumbersOnlineSolving(el, g){
     return el;
   }
 
-  if(!numbersCalc){ startNumbersCalc(g.numbers, g.timeLimit); }
+  if(!numbersCalc || numbersCalc.forNumbers !== numbersSignature(g.numbers)){
+    stopNumbersTimer();
+    startNumbersCalc(g.numbers, g.timeLimit);
+    numbersTurnStarted = false;
+  }
   if(!numbersTurnStarted){
     const wrap = document.createElement('div');
     wrap.className = 'privacy-shield';
