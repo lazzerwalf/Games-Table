@@ -386,6 +386,18 @@
   .numbers-points-pill{background:var(--gold);color:#1c1c1c;font-weight:700;font-size:12px;padding:3px 10px;border-radius:20px;}
   .numbers-points-pill.zero{background:rgba(255,255,255,.15);color:#cfe4da;}
 
+  /* 3 card brag */
+  .brag-table{width:100%;border-collapse:collapse;margin:14px 0;}
+  .brag-table th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--gold-bright);padding:6px 8px;text-align:center;border-bottom:1px solid rgba(255,255,255,.15);}
+  .brag-table td{padding:8px;text-align:center;vertical-align:top;border-bottom:1px solid rgba(255,255,255,.06);}
+  .brag-slot-label{font-size:11px;color:#cfe4da;opacity:.7;text-align:left;white-space:nowrap;}
+  .brag-hand-cell{border-radius:10px;padding:6px;}
+  .brag-hand-cell.winner{background:rgba(230,178,88,.15);box-shadow:inset 0 0 0 2px var(--gold-bright);}
+  .brag-hand-cell.tie{background:rgba(255,255,255,.06);}
+  .brag-mini-cards{display:flex;gap:3px;justify-content:center;margin-bottom:4px;}
+  .brag-category-label{font-size:10.5px;color:#cfe4da;opacity:.85;}
+  .brag-bonus-badge{display:inline-block;margin-top:6px;background:var(--gold);color:#1c1c1c;font-weight:700;font-size:10.5px;padding:2px 8px;border-radius:20px;}
+
   /* toast */
   .toast-banner{
     position:fixed;top:18px;left:50%;transform:translateX(-50%) translateY(-16px);
@@ -1554,6 +1566,155 @@ function onlineNumbersEndGame(g){
   g.winner = g.players.filter(p=>p.score===maxScore);
 }
 
+/* ======================= 3 CARD BRAG ENGINE ======================= */
+const BRAG_RANK_VALUE = {'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':11,'Q':12,'K':13,'A':14};
+// Categories, low to high: 0 High Card, 1 Pair, 2 Flush, 3 Straight (Run), 4 Three of a Kind (Prial), 5 Running Flush.
+function evaluateBragHand(cards){
+  const ranks = cards.map(c=>BRAG_RANK_VALUE[c.rank]).sort((a,b)=>b-a);
+  const suits = cards.map(c=>c.suit);
+  const isFlush = suits[0]===suits[1] && suits[1]===suits[2];
+  const uniqueRanks = [...new Set(ranks)];
+  const isTrips = uniqueRanks.length===1;
+  const isPair = uniqueRanks.length===2;
+
+  let isStraight = false, straightTop = null;
+  if(uniqueRanks.length===3){
+    const s = uniqueRanks.slice().sort((a,b)=>b-a);
+    if(s[0]-s[1]===1 && s[1]-s[2]===1){ isStraight = true; straightTop = s[0]; }
+    if(s[0]===14 && s[1]===3 && s[2]===2){ isStraight = true; straightTop = 15; } // A-2-3 is the highest run
+  }
+
+  if(isStraight && isFlush) return { category:5, tiebreak:[straightTop] };
+  if(isTrips){
+    const tripValue = ranks[0]===3 ? 15 : ranks[0]; // 3-3-3 is the highest prial, then A-A-A down to 2-2-2
+    return { category:4, tiebreak:[tripValue] };
+  }
+  if(isStraight) return { category:3, tiebreak:[straightTop] };
+  if(isFlush) return { category:2, tiebreak:ranks };
+  if(isPair){
+    const pairRank = ranks.find((r,i)=> ranks.indexOf(r)!==i);
+    const kicker = ranks.find(r=>r!==pairRank);
+    return { category:1, tiebreak:[pairRank, kicker] };
+  }
+  return { category:0, tiebreak:ranks };
+}
+function compareBragHands(handA, handB){
+  const evalA = evaluateBragHand(handA), evalB = evaluateBragHand(handB);
+  if(evalA.category !== evalB.category) return evalA.category - evalB.category;
+  for(let i=0;i<evalA.tiebreak.length;i++){
+    if(evalA.tiebreak[i] !== evalB.tiebreak[i]) return evalA.tiebreak[i]-evalB.tiebreak[i];
+  }
+  return 0;
+}
+const BRAG_CATEGORY_NAMES = ['High Card','Pair','Flush','Straight','Three of a Kind','Running Flush'];
+function bragHandLabel(cards){
+  const ev = evaluateBragHand(cards);
+  return BRAG_CATEGORY_NAMES[ev.category];
+}
+
+// Greedily pulls the single best possible 3-card hand from the pool, repeating on what's left,
+// so the strongest hand comes first, then the next strongest, and so on.
+function autoSortBragHands(cards, maxHands){
+  const pool = cards.map(c=>({...c}));
+  const hands = [];
+  while(hands.length < maxHands && pool.length >= 3){
+    let bestIdx = null;
+    for(let i=0;i<pool.length;i++){
+      for(let j=i+1;j<pool.length;j++){
+        for(let k=j+1;k<pool.length;k++){
+          if(bestIdx===null || compareBragHands([pool[i],pool[j],pool[k]], [pool[bestIdx[0]],pool[bestIdx[1]],pool[bestIdx[2]]]) > 0){
+            bestIdx = [i,j,k];
+          }
+        }
+      }
+    }
+    const [i,j,k] = bestIdx;
+    hands.push([pool[i], pool[j], pool[k]]);
+    [k,j,i].sort((a,b)=>b-a).forEach(idx=>pool.splice(idx,1));
+  }
+  return { hands, leftover: pool };
+}
+
+function checkFourOfAKindBonus(cards){
+  const counts = {};
+  cards.forEach(c=>{ counts[c.rank] = (counts[c.rank]||0)+1; });
+  return Object.values(counts).some(c=>c>=4);
+}
+
+function bragConfigForPlayerCount(n){
+  if(n===2) return {dealSize:20, maxHands:6};
+  if(n===3) return {dealSize:17, maxHands:5};
+  return {dealSize:11, maxHands:3}; // 4 players
+}
+
+class BragGame{
+  constructor(playerDefs){
+    this.players = playerDefs.map(p=>({...p, score:0, hands:[], leftover:[], rawHand:[], bonusPoints:0, roundPointsWon:0}));
+    this.roundNum = 0;
+    this.dealSize = null;
+    this.maxHands = null;
+    this.slotResults = [];
+    this.log = [];
+    this.gameOver = false;
+    this.winner = null;
+  }
+  getPlayer(id){ return this.players.find(p=>p.id===id); }
+
+  startRound(){
+    this.roundNum++;
+    const config = bragConfigForPlayerCount(this.players.length);
+    this.dealSize = config.dealSize;
+    this.maxHands = config.maxHands;
+    const deck = shuffle(createDeck());
+    this.players.forEach(p=>{
+      p.rawHand = deck.splice(0, this.dealSize);
+      const sorted = autoSortBragHands(p.rawHand, this.maxHands);
+      p.hands = sorted.hands;
+      p.leftover = sorted.leftover;
+      p.bonusPoints = checkFourOfAKindBonus(p.rawHand) ? 10 : 0;
+      p.roundPointsWon = 0;
+    });
+
+    const maxSlots = Math.max(...this.players.map(p=>p.hands.length));
+    this.slotResults = [];
+    for(let slot=0; slot<maxSlots; slot++){
+      const contenders = this.players.filter(p=>p.hands.length>slot);
+      if(contenders.length===0) continue;
+      if(contenders.length===1){
+        contenders[0].score += 1;
+        contenders[0].roundPointsWon += 1;
+        this.slotResults.push({slot, winners:[contenders[0].id], uncontested:true, tie:false});
+      } else {
+        let best = [contenders[0]];
+        for(let i=1;i<contenders.length;i++){
+          const cmp = compareBragHands(contenders[i].hands[slot], best[0].hands[slot]);
+          if(cmp>0) best = [contenders[i]];
+          else if(cmp===0) best.push(contenders[i]);
+        }
+        if(best.length===1){ best[0].score += 1; best[0].roundPointsWon += 1; }
+        this.slotResults.push({slot, winners:best.map(p=>p.id), uncontested:false, tie:best.length>1});
+      }
+    }
+    this.players.forEach(p=>{ if(p.bonusPoints>0) p.score += p.bonusPoints; });
+
+    this.log.push(`Round ${this.roundNum} — ${this.dealSize} cards each, up to ${this.maxHands} hand${this.maxHands!==1?'s':''}.`);
+    this.players.forEach(p=>{
+      if(p.bonusPoints>0) this.log.push(`${p.name} held all 4 of a rank — +10 bonus points!`);
+    });
+    this.slotResults.forEach(r=>{
+      if(r.tie) this.log.push(`Hand ${r.slot+1}: tied, no one scores.`);
+      else this.log.push(`Hand ${r.slot+1}: ${this.getPlayer(r.winners[0]).name} wins${r.uncontested?' (uncontested)':''}.`);
+    });
+
+    const maxScore = Math.max(...this.players.map(p=>p.score));
+    if(maxScore>=101){
+      this.gameOver = true;
+      this.winner = this.players.filter(p=>p.score===maxScore);
+      this.log.push(`${this.winner.map(w=>w.name).join(' & ')} reached ${maxScore} points and won!`);
+    }
+  }
+}
+
 /* ======================= APP / UI ======================= */
 const app = document.getElementById('app');
 let game = null;
@@ -1902,7 +2063,7 @@ function maybeDriveOnlineBotTurn(){
   else maybeDriveOnlineGreedyPigBotTurn();
 }
 
-function maxSeatsForGameType(gt){ return (gt==='black5'||gt==='numbers') ? 4 : 6; }
+function maxSeatsForGameType(gt){ return (gt==='black5'||gt==='numbers'||gt==='brag') ? 4 : 6; }
 
 function maybeDriveOnlineGreedyPigBotTurn(){
   if(!onlineMode || !onlineRoomState || onlineRoomState.phase!=='playing' || !onlineRoomState.game) return;
@@ -1994,6 +2155,7 @@ const GAMES = [
   {id:'bonk', name:'BONK', active:true, icon:'💥5️⃣', desc:'Any card goes. Match the last rank played and BONK the player who laid it — do it again and again to escalate.'},
   {id:'trumps', name:'Trumps', active:true, icon:'♠️👑', desc:"Follow suit or trump it. Win no tricks in a round and you're out — last player standing wins."},
   {id:'numbers', name:'Numbers', active:true, icon:'🔢', desc:'Pick large and small numbers, then get as close as you can to a random target using +, −, ×, ÷.'},
+  {id:'brag', name:'3 Card Brag', active:true, icon:'🂡👑', desc:'Sort your dealt cards into the best 3-card hands you can. Best hand plays best hand — first to 101 wins.'},
 ];
 
 function render(){
@@ -2021,6 +2183,10 @@ function render(){
     app.innerHTML=''; app.appendChild(renderNumbersOnlineScreen());
     return;
   }
+  if(activeGameId==='brag-online'){
+    app.innerHTML=''; app.appendChild(renderBragOnlineScreen());
+    return;
+  }
   if(!game){
     app.innerHTML = '';
     app.appendChild(revealedForId==='menu-setup' ? renderSetup() : renderMenu());
@@ -2033,6 +2199,7 @@ function render(){
   else if(activeGameId==='bonk') app.appendChild(renderBonkScreen());
   else if(activeGameId==='trumps') app.appendChild(renderTrumpsScreen());
   else if(activeGameId==='numbers') app.appendChild(renderNumbersScreen());
+  else if(activeGameId==='brag') app.appendChild(renderBragScreen());
   else app.appendChild(renderGame());
 }
 
@@ -2109,12 +2276,13 @@ function renderSetup(){
       : pendingGameId==='bonk' ? renderBonkRulesPanel()
       : pendingGameId==='trumps' ? renderTrumpsRulesPanel()
       : pendingGameId==='numbers' ? renderNumbersRulesPanel()
+      : pendingGameId==='brag' ? renderBragRulesPanel()
       : renderRulesPanel();
     tabBody.appendChild(rulesPanel);
     return el;
   }
 
-  if(['greedypig','pairs','black5','sevens','bonk'].includes(pendingGameId)){
+  if(['greedypig','pairs','black5','sevens','bonk','brag'].includes(pendingGameId)){
     const modeRow = document.createElement('div');
     modeRow.style.cssText = 'display:flex;gap:8px;margin-bottom:18px;';
     modeRow.innerHTML = `
@@ -2130,6 +2298,7 @@ function renderSetup(){
         : pendingGameId==='pairs' ? renderPairsOnlineSetupPanel()
         : pendingGameId==='sevens' ? renderSevensOnlineSetupPanel()
         : pendingGameId==='bonk' ? renderBonkOnlineSetupPanel()
+        : pendingGameId==='brag' ? renderBragOnlineSetupPanel()
         : renderBlack5OnlineSetupPanel();
       tabBody.appendChild(panel);
       return el;
@@ -2148,8 +2317,10 @@ function renderSetup(){
     ? "2–4 players. Follow suit if you can, or trump it. Win no tricks in a round and you're out — last one standing wins."
     : pendingGameId==='numbers'
     ? '2–6 players. Pick your numbers, then get as close as you can to the target in 30 seconds. Highest score wins.'
+    : pendingGameId==='brag'
+    ? "2–4 players. Your cards get auto-sorted into the best hands possible — best hand plays best hand. First to 101 wins."
     : '2–4 players. Everyone starts with 5 points; you lose points based on the cards left in your hand when a round ends.';
-  const startLabel = pendingGameId==='greedypig' ? 'Start rolling' : pendingGameId==='pairs' ? 'Lay the board' : pendingGameId==='sevens' ? 'Deal everyone in' : pendingGameId==='bonk' ? 'Deal the cards' : pendingGameId==='trumps' ? 'Deal the cards' : pendingGameId==='numbers' ? 'Start the game' : 'Deal the cards';
+  const startLabel = pendingGameId==='greedypig' ? 'Start rolling' : pendingGameId==='pairs' ? 'Lay the board' : pendingGameId==='sevens' ? 'Deal everyone in' : pendingGameId==='bonk' ? 'Deal the cards' : pendingGameId==='trumps' ? 'Deal the cards' : pendingGameId==='numbers' ? 'Start the game' : pendingGameId==='brag' ? 'Deal the cards' : 'Deal the cards';
 
   const setupWrap = document.createElement('div');
   setupWrap.innerHTML = `
@@ -2244,6 +2415,11 @@ function renderSetup(){
       game.startRound();
       activeGameId = 'numbers';
       revealedForId = defs.filter(d=>!d.isBot).length<=1 ? (defs.find(d=>!d.isBot)?.id || null) : null;
+    } else if(pendingGameId==='brag'){
+      game = new BragGame(defs);
+      game.startRound();
+      activeGameId = 'brag';
+      revealedForId = null;
     } else {
       game = new BlackFiveGame(defs);
       game.startRound();
@@ -2258,6 +2434,7 @@ function renderSetup(){
     else if(activeGameId==='bonk') maybeRunBonkBotTurn();
     else if(activeGameId==='trumps') maybeRunTrumpsBotTurn();
     else if(activeGameId==='numbers') maybeRunNumbersBotStep();
+    else if(activeGameId==='brag'){ /* no-op: hands are auto-sorted, nothing for a bot to decide */ }
     else maybeRunBotTurn();
   });
 
@@ -7548,6 +7725,193 @@ function renderNumbersOnlineGameOver(el, g){
     el.querySelector('#rematchBtn').addEventListener('click', ()=> restartNumbersOnlineGame());
   }
   el.querySelector('#menuBtn2').addEventListener('click', ()=>{ stopNumbersTimer(); leaveOnlineGame(); });
+  return el;
+}
+
+/* ======================= 3 CARD BRAG UI (local) ======================= */
+function renderBragRulesPanel(){
+  const wrap = document.createElement('div');
+  wrap.className = 'rules-content';
+  wrap.innerHTML = `
+    <h4>Setup</h4>
+    <p>2–4 players. Everyone gets dealt a big pile of cards, which the game automatically sorts into the best possible 3-card hands, strongest first — 6 hands for 2 players (20 cards each), 5 hands for 3 players (17 cards each), or 3 hands for 4 players (11 cards each). Any leftover cards that don't fit into a hand are discarded.</p>
+
+    <h4>Hand rankings (low to high)</h4>
+    <ul>
+      <li><strong>High Card</strong> — Ace high, all 3 cards count (A-K-J beats A-K-10).</li>
+      <li><strong>Pair</strong> — Aces highest down to 2s, third card breaks ties (9-9-K beats 9-9-Q).</li>
+      <li><strong>Flush</strong> — all 3 cards the same suit. No suit outranks another.</li>
+      <li><strong>Straight (Run)</strong> — 3 running cards. A-2-3 is the highest run, then A-K-Q, K-Q-J, and so on down to the lowest, 2-3-4.</li>
+      <li><strong>Three of a Kind (Prial)</strong> — 3-3-3 is the highest, then A-A-A, K-K-K, and down to 2-2-2.</li>
+      <li><strong>Running Flush</strong> — a run that's also a flush (a "bouncer"). Same ordering as a straight, but beats everything else.</li>
+    </ul>
+
+    <h4>Scoring</h4>
+    <p>Each player's best hand plays everyone else's best hand, second-best plays second-best, and so on. Winning a hand is worth 1 point. If a player has more hands than everyone else (because their cards sorted better), those extra hands win automatically since there's nothing to beat them. Holding all 4 cards of a rank in your dealt cards is worth a 10-point bonus. First to 101 points wins.</p>
+  `;
+  return wrap;
+}
+
+function bragSuitSymbol(suit){ return SUIT_SYM[suit]; }
+
+function renderBragHandCell(hand, isWinner, isTie){
+  const cell = document.createElement('div');
+  cell.className = 'brag-hand-cell' + (isWinner?' winner':'') + (isTie?' tie':'');
+  const cardsRow = document.createElement('div');
+  cardsRow.className = 'brag-mini-cards';
+  hand.forEach(c=>{ cardsRow.appendChild(makeCardEl(c, 'mini')); });
+  cell.appendChild(cardsRow);
+  const label = document.createElement('div');
+  label.className = 'brag-category-label';
+  label.textContent = bragHandLabel(hand);
+  cell.appendChild(label);
+  return cell;
+}
+
+function renderBragScreen(){
+  const el = document.createElement('div');
+  el.className = 'game-screen';
+  if(game.gameOver) return renderBragGameOver(el);
+
+  el.innerHTML = `
+    <div class="topbar">
+      <div class="topbar-title">3 Card Brag — Round ${game.roundNum}</div>
+      <div class="topbar-actions"><button id="endGameBtn" class="ghost-btn">End game</button><button id="menuBtn">Main menu</button></div>
+    </div>
+    <div class="table-area">
+      <div class="table-main" style="overflow-y:auto;">
+        <div class="brag-wrap" style="padding:16px;"></div>
+      </div>
+      <details class="side-panel">
+        <summary>Players &amp; Table talk</summary>
+        <div class="side-panel-body">
+          <h3>Players</h3>
+          <div class="score-list"></div>
+          <h3>Table talk</h3>
+          <div class="log-feed"></div>
+        </div>
+      </details>
+    </div>
+  `;
+  el.querySelector('#menuBtn').addEventListener('click', ()=>{
+    if(confirm('Leave this game and return to the menu?')){
+      game=null; activeGameId=null; revealedForId=null; seatConfigs=[]; render();
+    }
+  });
+  el.querySelector('#endGameBtn').addEventListener('click', ()=>{
+    if(confirm('End the game now? Whoever has the most points will be declared the winner.')){
+      game.gameOver = true;
+      const maxScore = Math.max(...game.players.map(p=>p.score));
+      game.winner = game.players.filter(p=>p.score===maxScore);
+      sfxWin();
+      render();
+    }
+  });
+  el.querySelector('.topbar-actions').prepend(renderMuteControl());
+
+  const wrap = el.querySelector('.brag-wrap');
+  const table = document.createElement('table');
+  table.className = 'brag-table';
+  const headRow = document.createElement('tr');
+  headRow.innerHTML = '<th></th>' + game.players.map(p=>`<th>${p.name}${p.bonusPoints>0?' 🎉':''}</th>`).join('');
+  table.appendChild(headRow);
+  for(let slot=0; slot<game.maxHands; slot++){
+    const anyHasSlot = game.players.some(p=>p.hands.length>slot);
+    if(!anyHasSlot) continue;
+    const row = document.createElement('tr');
+    const slotResult = game.slotResults[slot];
+    const labelCell = document.createElement('td');
+    labelCell.className = 'brag-slot-label';
+    labelCell.textContent = `Hand ${slot+1}`;
+    row.appendChild(labelCell);
+    game.players.forEach(p=>{
+      const td = document.createElement('td');
+      if(p.hands.length>slot){
+        const isWinner = slotResult && slotResult.winners.includes(p.id) && !slotResult.tie;
+        const isTie = slotResult && slotResult.tie && slotResult.winners.includes(p.id);
+        td.appendChild(renderBragHandCell(p.hands[slot], isWinner, isTie));
+      } else {
+        td.innerHTML = '<span style="color:#cfe4da;opacity:.4;font-size:12px;">—</span>';
+      }
+      row.appendChild(td);
+    });
+    table.appendChild(row);
+  }
+  wrap.appendChild(table);
+
+  game.players.forEach(p=>{
+    if(p.bonusPoints>0){
+      const badge = document.createElement('div');
+      badge.style.textAlign = 'center';
+      badge.innerHTML = `<span class="brag-bonus-badge">${p.name}: 4 of a kind — +10 pts</span>`;
+      wrap.appendChild(badge);
+    }
+  });
+
+  const nextBtn = document.createElement('div');
+  nextBtn.style.cssText = 'text-align:center;margin-top:20px;';
+  nextBtn.innerHTML = `<button class="primary-btn" id="nextRoundBtn" style="width:auto;padding:14px 26px;">Next round</button>`;
+  wrap.appendChild(nextBtn);
+  wrap.querySelector('#nextRoundBtn').addEventListener('click', ()=>{
+    game.startRound();
+    render();
+  });
+
+  const scoreList = el.querySelector('.score-list');
+  [...game.players].sort((a,b)=>b.score-a.score).forEach(p=>{
+    const item = document.createElement('div');
+    item.className = 'score-item' + (!p.isBot?' you':'');
+    item.innerHTML = `<span>${p.name}${p.isBot?' 🤖':''}</span><span>${p.score} pt${p.score!==1?'s':''} (+${p.roundPointsWon+p.bonusPoints})</span>`;
+    scoreList.appendChild(item);
+  });
+  const logFeed = el.querySelector('.log-feed');
+  [...game.log].slice(-60).reverse().forEach(line=>{
+    const d = document.createElement('div');
+    d.textContent = line;
+    logFeed.appendChild(d);
+  });
+  setupSidePanelToggle(el);
+  return el;
+}
+
+function renderBragGameOver(el){
+  const winners = game.winner || [];
+  const title = winners.length===1 ? `${winners[0].name} wins!` : `${winners.map(w=>w.name).join(' & ')} tie!`;
+  const rows = [...game.players].sort((a,b)=>b.score-a.score)
+    .map(p=>`<tr><td>${p.name}${winners.some(w=>w.id===p.id)?' 🏆':''}</td><td>${p.score}</td></tr>`).join('');
+  const logHTML = [...game.log].slice(-60).reverse().map(line=>`<div>${line}</div>`).join('');
+  el.innerHTML = `
+    <div class="menu-screen">
+      <div class="menu-eyebrow">Game over</div>
+      <h1 class="menu-title">${title}</h1>
+      <div style="width:100%;max-width:420px;text-align:left;margin:14px 0 22px;">
+        <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:var(--gold-bright);margin:0 0 10px;">Final scores</h3>
+        <table class="round-results" style="width:100%;">
+          <tr><th>Player</th><th>Points</th></tr>
+          ${rows}
+        </table>
+      </div>
+      <div style="width:100%;max-width:420px;text-align:left;margin:0 0 28px;">
+        <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:var(--gold-bright);margin:0 0 10px;">Table talk</h3>
+        <div style="max-height:220px;overflow-y:auto;background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px 14px;font-size:12px;color:#cfe4da;opacity:.9;display:flex;flex-direction:column;gap:5px;">
+          ${logHTML}
+        </div>
+      </div>
+      <div style="display:flex;gap:14px;">
+        <button class="primary-btn" id="rematchBtn" style="width:auto;padding:14px 26px;">Rematch</button>
+        <button class="ghost-btn" id="menuBtn2">Main menu</button>
+      </div>
+    </div>
+  `;
+  el.querySelector('#rematchBtn').addEventListener('click', ()=>{
+    const defs = game.players.map(p=>({id:p.id,name:p.name,isBot:p.isBot}));
+    game = new BragGame(defs);
+    game.startRound();
+    render();
+  });
+  el.querySelector('#menuBtn2').addEventListener('click', ()=>{
+    game=null; activeGameId=null; revealedForId=null; seatConfigs=[]; render();
+  });
   return el;
 }
 
