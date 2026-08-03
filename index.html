@@ -1740,59 +1740,114 @@ class BragGame{
   }
 
   resolveRound(){
-    const maxSlots = Math.max(...this.players.map(p=>p.hands.length), 0);
-    this.slotResults = [];
-    for(let slot=0; slot<maxSlots; slot++){
-      const contenders = this.players.filter(p=>p.hands.length>slot);
-      if(contenders.length===0) continue;
-      if(contenders.length===1){
-        contenders[0].score += 1;
-        contenders[0].roundPointsWon += 1;
-        this.slotResults.push({slot, winners:[contenders[0].id], uncontested:true, tie:false});
-      } else {
-        let best = [contenders[0]];
-        for(let i=1;i<contenders.length;i++){
-          const cmp = compareBragHands(contenders[i].hands[slot], best[0].hands[slot]);
-          if(cmp>0) best = [contenders[i]];
-          else if(cmp===0) best.push(contenders[i]);
-        }
-        if(best.length===1){ best[0].score += 1; best[0].roundPointsWon += 1; }
-        this.slotResults.push({slot, winners:best.map(p=>p.id), uncontested:false, tie:best.length>1});
-      }
-    }
-    // 4-of-a-kind bonus: counts cards actually placed into hands (across all of a player's formed
-    // hands), not just whatever happened to be in their raw deal - e.g. A-A-A as one hand plus the
-    // 4th Ace used in a separate A-2-3 hand still counts, but an unused 4th card sitting in the
-    // trash pile does not. If more than one player has a 4-of-a-kind this round, only the highest
-    // one wins the bonus - 3s are highest, then Ace down through King, Queen, Jack, ... to 2.
-    const fourOfAKindCandidates = [];
-    this.players.forEach(p=>{
-      const inPlay = [].concat(...p.hands);
-      const rank = findFourOfAKindRank(inPlay);
-      p.bonusPoints = 0;
-      if(rank) fourOfAKindCandidates.push({player:p, rank, value:fourOfAKindRankValue(rank)});
-    });
-    if(fourOfAKindCandidates.length>0){
-      const maxValue = Math.max(...fourOfAKindCandidates.map(c=>c.value));
-      const winners = fourOfAKindCandidates.filter(c=>c.value===maxValue);
-      winners.forEach(w=>{ w.player.bonusPoints = 10; w.player.score += 10; });
-      fourOfAKindCandidates.forEach(c=>{
-        if(c.value===maxValue) this.log.push(`${c.player.name} had all 4 ${c.rank}s in play — the highest four of a kind — +10 bonus points!`);
-        else this.log.push(`${c.player.name} had all 4 ${c.rank}s in play, but it wasn't the highest — no bonus.`);
-      });
-    }
-    this.slotResults.forEach(r=>{
-      if(r.tie) this.log.push(`Hand ${r.slot+1}: tied, no one scores.`);
-      else this.log.push(`Hand ${r.slot+1}: ${this.getPlayer(r.winners[0]).name} wins${r.uncontested?' (uncontested)':''}.`);
-    });
+    resolveBragRound(this);
+  }
+}
 
-    const maxScore = Math.max(...this.players.map(p=>p.score));
-    if(maxScore>=101){
-      this.gameOver = true;
-      this.winner = this.players.filter(p=>p.score===maxScore);
-      this.log.push(`${this.winner.map(w=>w.name).join(' & ')} reached ${maxScore} points and won!`);
+function resolveBragRound(g){
+  const maxSlots = Math.max(...g.players.map(p=>p.hands.length), 0);
+  g.slotResults = [];
+  for(let slot=0; slot<maxSlots; slot++){
+    const contenders = g.players.filter(p=>p.hands.length>slot);
+    if(contenders.length===0) continue;
+    if(contenders.length===1){
+      contenders[0].score += 1;
+      contenders[0].roundPointsWon += 1;
+      g.slotResults.push({slot, winners:[contenders[0].id], uncontested:true, tie:false});
+    } else {
+      let best = [contenders[0]];
+      for(let i=1;i<contenders.length;i++){
+        const cmp = compareBragHands(contenders[i].hands[slot], best[0].hands[slot]);
+        if(cmp>0) best = [contenders[i]];
+        else if(cmp===0) best.push(contenders[i]);
+      }
+      if(best.length===1){ best[0].score += 1; best[0].roundPointsWon += 1; }
+      g.slotResults.push({slot, winners:best.map(p=>p.id), uncontested:false, tie:best.length>1});
     }
   }
+  // 4-of-a-kind bonus: counts cards actually placed into hands (across all of a player's formed
+  // hands), not just whatever happened to be in their raw deal - e.g. A-A-A as one hand plus the
+  // 4th Ace used in a separate A-2-3 hand still counts, but an unused 4th card sitting in the
+  // trash pile does not. If more than one player has a 4-of-a-kind this round, only the highest
+  // one wins the bonus - 3s are highest, then Ace down through King, Queen, Jack, ... to 2.
+  const fourOfAKindCandidates = [];
+  g.players.forEach(p=>{
+    const inPlay = [].concat(...p.hands);
+    const rank = findFourOfAKindRank(inPlay);
+    p.bonusPoints = 0;
+    if(rank) fourOfAKindCandidates.push({player:p, rank, value:fourOfAKindRankValue(rank)});
+  });
+  if(fourOfAKindCandidates.length>0){
+    const maxValue = Math.max(...fourOfAKindCandidates.map(c=>c.value));
+    const winners = fourOfAKindCandidates.filter(c=>c.value===maxValue);
+    winners.forEach(w=>{ w.player.bonusPoints = 10; w.player.score += 10; });
+    fourOfAKindCandidates.forEach(c=>{
+      if(c.value===maxValue) g.log.push(`${c.player.name} had all 4 ${c.rank}s in play — the highest four of a kind — +10 bonus points!`);
+      else g.log.push(`${c.player.name} had all 4 ${c.rank}s in play, but it wasn't the highest — no bonus.`);
+    });
+  }
+  g.slotResults.forEach(r=>{
+    if(r.tie) g.log.push(`Hand ${r.slot+1}: tied, no one scores.`);
+    else g.log.push(`Hand ${r.slot+1}: ${g.players.find(p=>p.id===r.winners[0]).name} wins${r.uncontested?' (uncontested)':''}.`);
+  });
+
+  const maxScore = Math.max(...g.players.map(p=>p.score));
+  if(maxScore>=101){
+    g.gameOver = true;
+    g.winner = g.players.filter(p=>p.score===maxScore);
+    g.log.push(`${g.winner.map(w=>w.name).join(' & ')} reached ${maxScore} points and won!`);
+  }
+}
+
+/* ======================= 3 CARD BRAG ONLINE ENGINE ======================= */
+function onlineBragInit(players){
+  return {
+    players: players.map(p=>({id:p.id, name:p.name, deviceId:p.deviceId||null, score:0, hands:[], leftover:[], rawHand:[], bonusPoints:0, roundPointsWon:0, submitted:false})),
+    roundNum: 0,
+    dealSize: null, maxHands: null,
+    slotResults: [],
+    phase: 'arranging', // 'arranging' -> 'reveal'
+    log: [],
+    gameOver: false,
+    winner: null,
+  };
+}
+
+function onlineBragStartRound(g){
+  g.roundNum++;
+  const config = bragConfigForPlayerCount(g.players.length);
+  g.dealSize = config.dealSize;
+  g.maxHands = config.maxHands;
+  const deck = shuffle(createDeck());
+  g.players.forEach(p=>{
+    p.rawHand = deck.splice(0, g.dealSize);
+    p.hands = [];
+    p.leftover = [];
+    p.bonusPoints = 0;
+    p.roundPointsWon = 0;
+    p.submitted = false;
+  });
+  g.slotResults = [];
+  g.phase = 'arranging';
+  g.log = [`Round ${g.roundNum} — ${g.dealSize} cards each, up to ${g.maxHands} hand${g.maxHands!==1?'s':''}.`];
+}
+
+function onlineBragSubmitHands(g, playerId, hands, trash){
+  const player = g.players.find(p=>p.id===playerId);
+  if(!player || player.submitted) return;
+  player.hands = [...hands].sort((a,b)=> compareBragHands(b,a));
+  player.leftover = trash;
+  player.submitted = true;
+  if(g.players.every(p=>p.submitted)){
+    g.phase = 'reveal';
+    resolveBragRound(g);
+  }
+}
+
+function onlineBragEndGame(g){
+  g.gameOver = true;
+  const maxScore = Math.max(...g.players.map(p=>p.score));
+  g.winner = g.players.filter(p=>p.score===maxScore);
 }
 
 /* ======================= APP / UI ======================= */
@@ -2200,6 +2255,7 @@ async function pollOnlineRoom(){
   // polling interval instead of deadlocking until someone reloads.
   maybeDriveOnlineBotTurn();
   maybeDriveOnlineNumbersPoll();
+  maybeDriveOnlineBragPoll();
 }
 
 function leaveOnlineGame(){
@@ -8153,6 +8209,473 @@ function renderBragGameOver(el){
   el.querySelector('#menuBtn2').addEventListener('click', ()=>{
     game=null; activeGameId=null; revealedForId=null; seatConfigs=[]; render();
   });
+  return el;
+}
+
+/* ======================= 3 CARD BRAG ONLINE UI ======================= */
+function renderBragOnlineSetupPanel(){
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `
+    <div class="rules-note" style="margin-bottom:20px;">Play with people on other phones: one of you creates a room and shares the 4-letter code, the others join with it. Everyone builds their own hands independently, then results are revealed together once everyone's submitted. No bots — 2 to 4 real players.</div>
+    <div style="margin-bottom:26px;">
+      <h4 style="font-family:'Fraunces',serif;font-size:15px;color:var(--gold-bright);margin:0 0 10px;">Create a room</h4>
+      <input class="seat-name-input" id="hostNameInput" placeholder="Your name" maxlength="16" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
+      <button class="primary-btn" id="createRoomBtn">Create room</button>
+    </div>
+    <div>
+      <h4 style="font-family:'Fraunces',serif;font-size:15px;color:var(--gold-bright);margin:0 0 10px;">Join a room</h4>
+      <input class="seat-name-input" id="guestNameInput" placeholder="Your name" maxlength="16" style="margin-bottom:10px;width:100%;box-sizing:border-box;">
+      <input class="seat-name-input" id="roomCodeInput" placeholder="Room code" style="margin-bottom:10px;width:100%;box-sizing:border-box;text-transform:uppercase;letter-spacing:.1em;" maxlength="4">
+      <button class="primary-btn" id="joinRoomBtn">Join room</button>
+    </div>
+  `;
+  wrap.querySelector('#createRoomBtn').addEventListener('click', ()=>{
+    const name = wrap.querySelector('#hostNameInput').value.trim() || 'Host';
+    createBragOnlineRoom(name);
+  });
+  wrap.querySelector('#joinRoomBtn').addEventListener('click', ()=>{
+    const name = wrap.querySelector('#guestNameInput').value.trim() || 'Player';
+    const code = wrap.querySelector('#roomCodeInput').value;
+    joinBragOnlineRoom(code, name);
+  });
+  return wrap;
+}
+
+async function createBragOnlineRoom(hostName){
+  if(!hasSharedStorage()){ alert("Couldn't connect to the game server. Check your internet connection and try again."); return; }
+  const code = generateRoomCode();
+  const seatId = 'p_'+myDeviceId.slice(4,9);
+  const room = {
+    gameType: 'brag', version: 1, phase: 'lobby', hostDeviceId: myDeviceId, code,
+    lobbySeats: [ {id:seatId, name:(hostName||'Host').slice(0,20), deviceId:myDeviceId} ],
+  };
+  const result = await storageSetSafe(pigRoomKey(code), JSON.stringify(room), true);
+  if(!result){ alert('Could not create the room — check your connection and try again.'); return; }
+  onlineMode = true; onlineRoomCode = code; onlineIsHost = true; onlineRoomState = room;
+  activeGameId = 'brag-online';
+  startOnlinePolling();
+  render();
+}
+
+async function joinBragOnlineRoom(codeRaw, guestName){
+  if(!hasSharedStorage()){ alert("Couldn't connect to the game server. Check your internet connection and try again."); return; }
+  const code = (codeRaw||'').trim().toUpperCase();
+  if(!code){ alert('Enter a room code.'); return; }
+  const res = await storageGetSafe(pigRoomKey(code), true);
+  if(!res){ alert("Couldn't find a room with that code — double check it with your friend."); return; }
+  let room;
+  try{ room = JSON.parse(res.value); } catch(e){ alert('That room looks corrupted — ask your friend to create a new one.'); return; }
+  if(room.gameType!=='brag'){ alert('That code belongs to a different game.'); return; }
+  if(room.phase !== 'lobby'){ alert('That game has already started.'); return; }
+  if(!room.lobbySeats.some(s=>s.deviceId===myDeviceId)){
+    if(room.lobbySeats.length>=maxSeatsForGameType('brag')){ alert('That room is full.'); return; }
+    const seatId = 'p_'+myDeviceId.slice(4,9);
+    room.lobbySeats.push({id:seatId, name:(guestName||'Player').slice(0,20), deviceId:myDeviceId});
+    room.version = (room.version||1)+1;
+    const writeResult = await storageSetSafe(pigRoomKey(code), JSON.stringify(room), true);
+    if(!writeResult){ alert('Could not join right now — try again.'); return; }
+  }
+  onlineMode = true; onlineRoomCode = code; onlineIsHost = (room.hostDeviceId===myDeviceId); onlineRoomState = room;
+  activeGameId = 'brag-online';
+  startOnlinePolling();
+  render();
+}
+
+async function startBragOnlineGame(){
+  if(!onlineIsHost || !onlineRoomState) return;
+  await refreshOnlineRoomState();
+  const seats = onlineRoomState.lobbySeats;
+  if(seats.length<2){ alert('Need at least 2 players to start.'); render(); return; }
+  const g = onlineBragInit(seats.map(s=>({id:s.id, name:s.name, deviceId:s.deviceId})));
+  onlineBragStartRound(g);
+  const newRoom = { ...onlineRoomState, phase:'playing', version: onlineRoomState.version+1, game: g };
+  const writeResult = await storageSetSafe(pigRoomKey(onlineRoomCode), JSON.stringify(newRoom), true);
+  if(!writeResult){ alert('Could not start the game — try again.'); return; }
+  onlineRoomState = newRoom;
+  render();
+}
+
+async function restartBragOnlineGame(){
+  if(!onlineIsHost || !onlineRoomState) return;
+  await refreshOnlineRoomState();
+  const newRoom = { ...onlineRoomState, phase:'lobby', version: onlineRoomState.version+1, game:null };
+  const writeResult = await storageSetSafe(pigRoomKey(onlineRoomCode), JSON.stringify(newRoom), true);
+  if(writeResult){ onlineRoomState = newRoom; render(); }
+}
+
+async function writeBragOnlineState(g){
+  const newRoom = { ...onlineRoomState, version: onlineRoomState.version+1, game: g };
+  const writeResult = await storageSetSafe(pigRoomKey(onlineRoomCode), JSON.stringify(newRoom), true);
+  if(writeResult){ onlineRoomState = newRoom; render(); }
+  else { render(); }
+}
+
+function onBragOnlineCardClick(cardId){
+  if(!bragArrangeState) return;
+  const g = onlineRoomState.game;
+  const idx = bragArrangeState.selectedIds.indexOf(cardId);
+  if(idx!==-1){ bragArrangeState.selectedIds.splice(idx,1); render(); return; }
+  if(bragArrangeState.hands.length >= g.maxHands) return;
+  if(bragArrangeState.selectedIds.length>=3) return;
+  bragArrangeState.selectedIds.push(cardId);
+  if(bragArrangeState.selectedIds.length===3){
+    const selectedCards = bragArrangeState.selectedIds.map(id=> bragArrangeState.pool.find(c=>c.id===id));
+    bragArrangeState.hands.push(selectedCards);
+    bragArrangeState.pool = bragArrangeState.pool.filter(c=> !bragArrangeState.selectedIds.includes(c.id));
+    bragArrangeState.selectedIds = [];
+    sfxCardPlay();
+  }
+  render();
+}
+
+function onBragOnlineUndoHand(handIndex){
+  if(!bragArrangeState) return;
+  const hand = bragArrangeState.hands[handIndex];
+  if(!hand) return;
+  bragArrangeState.pool = [...bragArrangeState.pool, ...hand];
+  bragArrangeState.hands.splice(handIndex,1);
+  sfxSelect();
+  render();
+}
+
+async function onBragOnlineSubmit(){
+  if(!bragArrangeState) return;
+  const myId = bragArrangeState._forPlayerId;
+  const trash = [...bragArrangeState.pool];
+  const hands = bragArrangeState.hands;
+  bragArrangeState = null;
+  sfxSelect();
+  await refreshOnlineRoomState();
+  const g = onlineRoomState.game;
+  const me = g.players.find(p=>p.id===myId);
+  if(!me || me.submitted){ render(); return; }
+  onlineBragSubmitHands(g, myId, hands, trash);
+  await writeBragOnlineState(g);
+}
+
+function maybeDriveOnlineBragPoll(){
+  if(!onlineMode || !onlineRoomState || onlineRoomState.phase!=='playing' || !onlineRoomState.game) return;
+  if(onlineRoomState.gameType!=='brag') return;
+  const g = onlineRoomState.game;
+  if(g.gameOver || g.phase!=='arranging') return;
+  // Safety net: if a round has been sitting unfinished for a long time (e.g. someone's device
+  // dropped before submitting), the host force-submits an empty hand for anyone still missing so
+  // the game doesn't hang forever. Uses a generous window since there's no per-round timer here.
+  if(!onlineIsHost) return;
+  if(!g._arrangingStartedAt){ g._arrangingStartedAt = Date.now(); return; }
+  if(Date.now() - g._arrangingStartedAt > 5*60*1000){
+    let changed = false;
+    g.players.forEach(p=>{
+      if(!p.submitted){ onlineBragSubmitHands(g, p.id, [], p.rawHand); changed = true; }
+    });
+    if(changed) writeBragOnlineState(g);
+  }
+}
+
+function renderBragOnlineScreen(){
+  const el = document.createElement('div');
+  el.className = 'game-screen';
+  if(!onlineRoomState){ activeGameId=null; onlineMode=false; return renderMenu(); }
+  if(onlineRoomState.phase==='lobby') return renderBragOnlineLobby(el);
+  const g = onlineRoomState.game;
+  if(g.gameOver) return renderBragOnlineGameOver(el, g);
+  if(g.phase==='reveal') return renderBragOnlineReveal(el, g);
+  return renderBragOnlineArranging(el, g);
+}
+
+function renderBragOnlineTopbar(el, title, g){
+  el.innerHTML = `
+    <div class="topbar">
+      <div class="topbar-title">${title}</div>
+      <div class="topbar-actions">${g?'<button id="endGameBtn" class="ghost-btn">End game</button>':''}<button id="leaveBtn">Leave</button></div>
+    </div>
+    <div class="table-area">
+      <div class="table-main" id="bragMain" style="overflow-y:auto;"></div>
+      <details class="side-panel">
+        <summary>Players &amp; Table talk</summary>
+        <div class="side-panel-body">
+          <h3>Players</h3>
+          <div class="score-list"></div>
+          <h3>Table talk</h3>
+          <div class="log-feed"></div>
+        </div>
+      </details>
+    </div>
+  `;
+  el.querySelector('#leaveBtn').addEventListener('click', ()=>{ bragArrangeState=null; leaveOnlineGame(); });
+  if(g){
+    el.querySelector('#endGameBtn').addEventListener('click', async ()=>{
+      if(!confirm('End the game now? Whoever has the most points will be declared the winner.')) return;
+      await refreshOnlineRoomState();
+      const g2 = onlineRoomState.game;
+      onlineBragEndGame(g2);
+      sfxWin();
+      await writeBragOnlineState(g2);
+    });
+    const scoreList = el.querySelector('.score-list');
+    [...g.players].sort((a,b)=>b.score-a.score).forEach(p=>{
+      const item = document.createElement('div');
+      item.className = 'score-item' + (p.deviceId===myDeviceId?' you':'');
+      item.innerHTML = `<span>${p.name}${p.submitted?' ✓':''}</span><span>${p.score} pt${p.score!==1?'s':''}</span>`;
+      scoreList.appendChild(item);
+    });
+    const logFeed = el.querySelector('.log-feed');
+    [...g.log].slice(-40).reverse().forEach(line=>{
+      const d = document.createElement('div');
+      d.textContent = line;
+      logFeed.appendChild(d);
+    });
+  } else {
+    el.querySelector('details.side-panel').style.display='none';
+  }
+  setupSidePanelToggle(el);
+  return el.querySelector('#bragMain');
+}
+
+function renderBragOnlineLobby(el){
+  const seats = onlineRoomState.lobbySeats;
+  const maxSeats = maxSeatsForGameType('brag');
+  el.innerHTML = `
+    <div class="topbar">
+      <div class="topbar-title">3 Card Brag — Online Lobby</div>
+      <div class="topbar-actions"><button id="leaveBtn">Leave</button></div>
+    </div>
+    <div class="menu-screen" style="justify-content:flex-start;padding-top:50px;">
+      <div class="menu-eyebrow">Room code</div>
+      <h1 class="menu-title" style="letter-spacing:.15em;">${onlineRoomState.code}</h1>
+      <p class="menu-sub">Share this code with your friends. Needs 2–4 players — no bots.</p>
+      <div style="width:100%;max-width:360px;margin:10px 0 24px;">
+        <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:var(--gold-bright);margin:0 0 10px;text-align:left;">Players (${seats.length}/${maxSeats})</h3>
+        <div class="score-list"></div>
+      </div>
+      <div id="lobbyActionArea" style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;"></div>
+    </div>
+  `;
+  el.querySelector('#leaveBtn').addEventListener('click', ()=> leaveOnlineGame());
+  const list = el.querySelector('.score-list');
+  seats.forEach(s=>{
+    const item = document.createElement('div');
+    item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;';
+    item.className = 'score-item' + (s.deviceId===myDeviceId ? ' you' : '');
+    const label = document.createElement('span');
+    label.textContent = `${s.name}${s.deviceId===onlineRoomState.hostDeviceId?' — host':''}`;
+    item.appendChild(label);
+    if(onlineIsHost && s.deviceId!==onlineRoomState.hostDeviceId){
+      const removeBtn = document.createElement('button');
+      removeBtn.textContent = '✕';
+      removeBtn.title = 'Remove player (only if they have left)';
+      removeBtn.style.cssText = 'background:none;border:none;color:#ffb3b8;font-size:15px;padding:2px 6px;cursor:pointer;line-height:1;';
+      removeBtn.addEventListener('click', ()=> removeSeatFromLobby(s.id));
+      item.appendChild(removeBtn);
+    } else {
+      item.appendChild(document.createElement('span'));
+    }
+    list.appendChild(item);
+  });
+  const actionArea = el.querySelector('#lobbyActionArea');
+  if(onlineIsHost){
+    const startBtn = document.createElement('button');
+    startBtn.className='primary-btn';
+    startBtn.style.cssText='width:auto;padding:12px 26px;';
+    startBtn.textContent = seats.length<2 ? 'Need at least 2 players' : 'Start the game';
+    startBtn.disabled = seats.length<2;
+    startBtn.addEventListener('click', ()=> startBragOnlineGame());
+    actionArea.appendChild(startBtn);
+  } else {
+    const waiting = document.createElement('div');
+    waiting.style.cssText='color:#cfe4da;opacity:.75;font-size:13px;';
+    waiting.textContent = 'Waiting for the host to start the game…';
+    actionArea.appendChild(waiting);
+  }
+  return el;
+}
+
+function renderBragOnlineArranging(el, g){
+  const main = renderBragOnlineTopbar(el, `3 Card Brag — Round ${g.roundNum} · Room ${onlineRoomState.code}`, g);
+  const me = g.players.find(p=>p.deviceId===myDeviceId);
+
+  if(!me){
+    main.innerHTML = `<p style="text-align:center;padding:30px;color:#cfe4da;opacity:.75;">Spectating.</p>`;
+    return el;
+  }
+
+  if(me.submitted){
+    const submittedCount = g.players.filter(p=>p.submitted).length;
+    main.innerHTML = `
+      <div style="padding:30px;text-align:center;">
+        <p style="font-size:14px;color:var(--gold-bright);">Your hands are locked in.</p>
+        <p style="font-size:13px;color:#cfe4da;opacity:.75;">Waiting on ${g.players.length-submittedCount} more player${g.players.length-submittedCount!==1?'s':''}…</p>
+      </div>
+    `;
+    return el;
+  }
+
+  if(!bragArrangeState || bragArrangeState._forPlayerId !== me.id){
+    bragArrangeState = { pool: me.rawHand.map(c=>({...c})), selectedIds: [], hands: [], _forPlayerId: me.id };
+  }
+
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'padding:16px;';
+  main.appendChild(wrap);
+
+  const title = document.createElement('div');
+  title.style.cssText = 'text-align:center;margin-bottom:6px;';
+  title.innerHTML = `<div class="menu-eyebrow">Your cards</div><p style="font-size:13px;color:#cfe4da;opacity:.8;">Tap 3 cards to form a hand — up to ${g.maxHands} hands. Anything left unassigned gets trashed.</p>`;
+  wrap.appendChild(title);
+
+  const poolRow = document.createElement('div');
+  poolRow.className = 'brag-pool';
+  sortTrumpsHand(bragArrangeState.pool).forEach(c=>{
+    const tokenWrap = document.createElement('div');
+    tokenWrap.className = 'brag-pool-card' + (bragArrangeState.selectedIds.includes(c.id)?' selected':'');
+    tokenWrap.appendChild(makeCardEl(c, 'mini'));
+    tokenWrap.addEventListener('click', ()=> onBragOnlineCardClick(c.id));
+    poolRow.appendChild(tokenWrap);
+  });
+  wrap.appendChild(poolRow);
+
+  const slotsWrap = document.createElement('div');
+  slotsWrap.className = 'brag-slots-wrap';
+  for(let i=0;i<g.maxHands;i++){
+    const row = document.createElement('div');
+    row.className = 'brag-slot-row';
+    const label = document.createElement('div');
+    label.className = 'brag-slot-label2';
+    label.textContent = `Hand ${i+1}`;
+    row.appendChild(label);
+    const cardsArea = document.createElement('div');
+    cardsArea.className = 'brag-slot-cards';
+    if(bragArrangeState.hands[i]){
+      bragArrangeState.hands[i].forEach(c=> cardsArea.appendChild(makeCardEl(c, 'mini')));
+      const catLabel = document.createElement('div');
+      catLabel.style.cssText = 'font-size:11px;color:var(--gold-bright);margin-left:8px;';
+      catLabel.textContent = bragHandLabel(bragArrangeState.hands[i]);
+      cardsArea.appendChild(catLabel);
+      cardsArea.title = 'Tap to undo';
+      cardsArea.addEventListener('click', ()=> onBragOnlineUndoHand(i));
+    } else {
+      cardsArea.innerHTML = '<span class="brag-slot-empty2">Select 3 cards…</span>';
+    }
+    row.appendChild(cardsArea);
+    slotsWrap.appendChild(row);
+  }
+  wrap.appendChild(slotsWrap);
+
+  const trashRow = document.createElement('div');
+  trashRow.className = 'brag-trash-row';
+  trashRow.innerHTML = `<div class="brag-slot-label2">Trash</div><div style="font-size:12px;color:#cfe4da;opacity:.7;">${bragArrangeState.pool.length} unassigned card${bragArrangeState.pool.length!==1?'s':''} will be discarded</div>`;
+  wrap.appendChild(trashRow);
+
+  const submitBtn = document.createElement('button');
+  submitBtn.className = 'primary-btn';
+  submitBtn.textContent = bragArrangeState.hands.length===0 ? 'Submit (no hands formed)' : 'Submit hands';
+  submitBtn.style.cssText = 'display:block;margin:20px auto 0;width:auto;padding:14px 26px;';
+  submitBtn.addEventListener('click', ()=> onBragOnlineSubmit());
+  wrap.appendChild(submitBtn);
+
+  return el;
+}
+
+function renderBragOnlineReveal(el, g){
+  const main = renderBragOnlineTopbar(el, `3 Card Brag — Round ${g.roundNum} results`, g);
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'padding:16px;';
+  main.appendChild(wrap);
+
+  const fourKindByPlayer = {};
+  g.players.forEach(p=>{ fourKindByPlayer[p.id] = findFourOfAKindRank([].concat(...p.hands)); });
+
+  const table = document.createElement('table');
+  table.className = 'brag-table';
+  const headRow = document.createElement('tr');
+  headRow.innerHTML = '<th></th>' + g.players.map(p=>`<th>${p.name}${p.deviceId===myDeviceId?' (you)':''}${p.bonusPoints>0?' 🎉':''}</th>`).join('');
+  table.appendChild(headRow);
+  for(let slot=0; slot<g.maxHands; slot++){
+    const anyHasSlot = g.players.some(p=>p.hands.length>slot);
+    if(!anyHasSlot) continue;
+    const row = document.createElement('tr');
+    const slotResult = g.slotResults[slot];
+    const labelCell = document.createElement('td');
+    labelCell.className = 'brag-slot-label';
+    labelCell.textContent = `Hand ${slot+1}`;
+    row.appendChild(labelCell);
+    g.players.forEach(p=>{
+      const td = document.createElement('td');
+      if(p.hands.length>slot){
+        const isWinner = slotResult && slotResult.winners.includes(p.id) && !slotResult.tie;
+        const isTie = slotResult && slotResult.tie && slotResult.winners.includes(p.id);
+        td.appendChild(renderBragHandCell(p.hands[slot], isWinner, isTie, fourKindByPlayer[p.id]));
+      } else {
+        td.innerHTML = '<span style="color:#cfe4da;opacity:.4;font-size:12px;">—</span>';
+      }
+      row.appendChild(td);
+    });
+    table.appendChild(row);
+  }
+  wrap.appendChild(table);
+
+  g.players.forEach(p=>{
+    if(p.bonusPoints>0){
+      const badge = document.createElement('div');
+      badge.style.textAlign = 'center';
+      badge.innerHTML = `<span class="brag-bonus-badge">${p.name}: 4 of a kind — +10 pts</span>`;
+      wrap.appendChild(badge);
+    }
+  });
+
+  const actionRow = document.createElement('div');
+  actionRow.style.cssText = 'text-align:center;margin-top:20px;';
+  if(onlineIsHost){
+    actionRow.innerHTML = `<button class="primary-btn" id="nextRoundBtn" style="width:auto;padding:14px 26px;">Next round</button>`;
+  } else {
+    actionRow.innerHTML = `<p style="font-size:13px;color:#cfe4da;opacity:.75;">Waiting for the host to continue…</p>`;
+  }
+  wrap.appendChild(actionRow);
+  if(onlineIsHost){
+    actionRow.querySelector('#nextRoundBtn').addEventListener('click', async ()=>{
+      await refreshOnlineRoomState();
+      const g2 = onlineRoomState.game;
+      onlineBragStartRound(g2);
+      await writeBragOnlineState(g2);
+    });
+  }
+  return el;
+}
+
+function renderBragOnlineGameOver(el, g){
+  const winners = g.winner || [];
+  const title = winners.length===1 ? `${winners[0].name} wins!` : `${winners.map(w=>w.name).join(' & ')} tie!`;
+  const rows = [...g.players].sort((a,b)=>b.score-a.score)
+    .map(p=>`<tr><td>${p.name}${winners.some(w=>w.id===p.id)?' 🏆':''}${p.deviceId===myDeviceId?' (you)':''}</td><td>${p.score}</td></tr>`).join('');
+  const logHTML = [...g.log].slice(-60).reverse().map(line=>`<div>${line}</div>`).join('');
+  el.innerHTML = `
+    <div class="menu-screen">
+      <div class="menu-eyebrow">Game over</div>
+      <h1 class="menu-title">${title}</h1>
+      <p class="menu-sub">Room ${onlineRoomState.code}.</p>
+      <div style="width:100%;max-width:420px;text-align:left;margin:14px 0 22px;">
+        <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:var(--gold-bright);margin:0 0 10px;">Final scores</h3>
+        <table class="round-results" style="width:100%;">
+          <tr><th>Player</th><th>Points</th></tr>
+          ${rows}
+        </table>
+      </div>
+      <div style="width:100%;max-width:420px;text-align:left;margin:0 0 28px;">
+        <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:var(--gold-bright);margin:0 0 10px;">Table talk</h3>
+        <div style="max-height:220px;overflow-y:auto;background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px 14px;font-size:12px;color:#cfe4da;opacity:.9;display:flex;flex-direction:column;gap:5px;">
+          ${logHTML}
+        </div>
+      </div>
+      <div style="display:flex;gap:14px;">
+        ${onlineIsHost ? '<button class="primary-btn" id="rematchBtn" style="width:auto;padding:14px 26px;">Back to lobby</button>' : ''}
+        <button class="ghost-btn" id="menuBtn2">Leave</button>
+      </div>
+    </div>
+  `;
+  if(onlineIsHost){
+    el.querySelector('#rematchBtn').addEventListener('click', ()=> restartBragOnlineGame());
+  }
+  el.querySelector('#menuBtn2').addEventListener('click', ()=>{ bragArrangeState=null; leaveOnlineGame(); });
   return el;
 }
 
