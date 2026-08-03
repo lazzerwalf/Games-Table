@@ -1652,6 +1652,19 @@ function checkFourOfAKindBonus(cards){
   cards.forEach(c=>{ counts[c.rank] = (counts[c.rank]||0)+1; });
   return Object.values(counts).some(c=>c>=4);
 }
+// Returns the rank a player holds 4-of (in play), or null if none. If more than one rank somehow
+// qualifies, the highest-ranking one is returned (shouldn't normally happen with one deck).
+function findFourOfAKindRank(cards){
+  const counts = {};
+  cards.forEach(c=>{ counts[c.rank] = (counts[c.rank]||0)+1; });
+  const qualifying = Object.keys(counts).filter(r=>counts[r]>=4);
+  if(qualifying.length===0) return null;
+  qualifying.sort((a,b)=> fourOfAKindRankValue(b) - fourOfAKindRankValue(a));
+  return qualifying[0];
+}
+// 3 is the highest for 4-of-a-kind (same special-case convention as Three of a Kind), then Ace
+// down through King, Queen, Jack, ... to 2.
+function fourOfAKindRankValue(rank){ return rank==='3' ? 15 : BRAG_RANK_VALUE[rank]; }
 
 function bragConfigForPlayerCount(n){
   if(n===2) return {dealSize:20, maxHands:6};
@@ -1749,16 +1762,24 @@ class BragGame{
     // 4-of-a-kind bonus: counts cards actually placed into hands (across all of a player's formed
     // hands), not just whatever happened to be in their raw deal - e.g. A-A-A as one hand plus the
     // 4th Ace used in a separate A-2-3 hand still counts, but an unused 4th card sitting in the
-    // trash pile does not.
+    // trash pile does not. If more than one player has a 4-of-a-kind this round, only the highest
+    // one wins the bonus - 3s are highest, then Ace down through King, Queen, Jack, ... to 2.
+    const fourOfAKindCandidates = [];
     this.players.forEach(p=>{
       const inPlay = [].concat(...p.hands);
-      p.bonusPoints = checkFourOfAKindBonus(inPlay) ? 10 : 0;
-      if(p.bonusPoints>0) p.score += p.bonusPoints;
+      const rank = findFourOfAKindRank(inPlay);
+      p.bonusPoints = 0;
+      if(rank) fourOfAKindCandidates.push({player:p, rank, value:fourOfAKindRankValue(rank)});
     });
-
-    this.players.forEach(p=>{
-      if(p.bonusPoints>0) this.log.push(`${p.name} had all 4 of a rank in play — +10 bonus points!`);
-    });
+    if(fourOfAKindCandidates.length>0){
+      const maxValue = Math.max(...fourOfAKindCandidates.map(c=>c.value));
+      const winners = fourOfAKindCandidates.filter(c=>c.value===maxValue);
+      winners.forEach(w=>{ w.player.bonusPoints = 10; w.player.score += 10; });
+      fourOfAKindCandidates.forEach(c=>{
+        if(c.value===maxValue) this.log.push(`${c.player.name} had all 4 ${c.rank}s in play — the highest four of a kind — +10 bonus points!`);
+        else this.log.push(`${c.player.name} had all 4 ${c.rank}s in play, but it wasn't the highest — no bonus.`);
+      });
+    }
     this.slotResults.forEach(r=>{
       if(r.tie) this.log.push(`Hand ${r.slot+1}: tied, no one scores.`);
       else this.log.push(`Hand ${r.slot+1}: ${this.getPlayer(r.winners[0]).name} wins${r.uncontested?' (uncontested)':''}.`);
