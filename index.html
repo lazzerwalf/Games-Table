@@ -1519,10 +1519,8 @@ function onlineNumbersSubmit(g, playerId, value, expr){
   g.submissions[playerId] = {value, expr};
   const player = g.players.find(p=>p.id===playerId);
   g.log.push(value===null ? `${player.name} didn't reach a number.` : `${player.name} reached ${value}.`);
-  if(value!==null && value===g.target && !g.roundEndedEarly){
-    g.roundEndedEarly = true;
-    g.earlyWinnerId = playerId;
-    g.log.push(`${player.name} hit the target exactly — round over!`);
+  if(value!==null && value===g.target){
+    g.log.push(`${player.name} hit the target exactly!`);
   }
   onlineNumbersMaybeFinishRound(g);
 }
@@ -7200,19 +7198,13 @@ function maybeDriveOnlineNumbersPoll(){
   if(onlineRoomState.gameType!=='numbers') return;
   const g = onlineRoomState.game;
   if(g.gameOver || g.phase!=='solving') return;
-  const me = g.players.find(p=>p.deviceId===myDeviceId);
-  if(me && g.roundEndedEarly && g.submissions[me.id]===undefined && !onlineNumbersForceSubmitInFlight){
-    onlineNumbersForceSubmitInFlight = true;
-    onlineNumbersSubmitAnswer().finally(()=>{ onlineNumbersForceSubmitInFlight=false; });
-    return;
-  }
-  // safety net: host force-resolves a round that's clearly overrun (e.g. someone's device dropped)
+  // Safety net only: if the round has clearly overrun its time limit (e.g. someone's device
+  // dropped and never submitted), the host force-resolves it so the game doesn't just hang.
   if(onlineIsHost && g.roundStartAt && (Date.now()-g.roundStartAt) > (g.timeLimit*1000+6000)){
     onlineNumbersMaybeFinishRound(g);
     if(g.phase==='reveal') writeNumbersOnlineState(g);
   }
 }
-let onlineNumbersForceSubmitInFlight = false;
 
 function renderNumbersOnlineScreen(){
   const el = document.createElement('div');
