@@ -397,6 +397,7 @@
   .brag-mini-cards{display:flex;gap:3px;justify-content:center;margin-bottom:4px;}
   .brag-category-label{font-size:10.5px;color:#cfe4da;opacity:.85;}
   .brag-bonus-badge{display:inline-block;margin-top:6px;background:var(--gold);color:#1c1c1c;font-weight:700;font-size:10.5px;padding:2px 8px;border-radius:20px;}
+  .playing-card.brag-four-kind{box-shadow:0 0 0 2px var(--red), 0 2px 8px rgba(0,0,0,.3);}
   .brag-pool{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin:14px 0;}
   .brag-pool-card{cursor:pointer;transition:transform .1s ease;}
   .brag-pool-card.selected{transform:translateY(-8px);}
@@ -7834,12 +7835,16 @@ function renderBragRulesPanel(){
 
 function bragSuitSymbol(suit){ return SUIT_SYM[suit]; }
 
-function renderBragHandCell(hand, isWinner, isTie){
+function renderBragHandCell(hand, isWinner, isTie, fourKindRank){
   const cell = document.createElement('div');
   cell.className = 'brag-hand-cell' + (isWinner?' winner':'') + (isTie?' tie':'');
   const cardsRow = document.createElement('div');
   cardsRow.className = 'brag-mini-cards';
-  hand.forEach(c=>{ cardsRow.appendChild(makeCardEl(c, 'mini')); });
+  hand.forEach(c=>{
+    const cardEl = makeCardEl(c, 'mini');
+    if(fourKindRank && c.rank===fourKindRank) cardEl.classList.add('brag-four-kind');
+    cardsRow.appendChild(cardEl);
+  });
   cell.appendChild(cardsRow);
   const label = document.createElement('div');
   label.className = 'brag-category-label';
@@ -7891,6 +7896,8 @@ function renderBragScreen(){
   el.querySelector('.topbar-actions').prepend(renderMuteControl());
 
   const wrap = el.querySelector('.brag-wrap');
+  const fourKindByPlayer = {};
+  game.players.forEach(p=>{ fourKindByPlayer[p.id] = findFourOfAKindRank([].concat(...p.hands)); });
   const table = document.createElement('table');
   table.className = 'brag-table';
   const headRow = document.createElement('tr');
@@ -7910,7 +7917,7 @@ function renderBragScreen(){
       if(p.hands.length>slot){
         const isWinner = slotResult && slotResult.winners.includes(p.id) && !slotResult.tie;
         const isTie = slotResult && slotResult.tie && slotResult.winners.includes(p.id);
-        td.appendChild(renderBragHandCell(p.hands[slot], isWinner, isTie));
+        td.appendChild(renderBragHandCell(p.hands[slot], isWinner, isTie, fourKindByPlayer[p.id]));
       } else {
         td.innerHTML = '<span style="color:#cfe4da;opacity:.4;font-size:12px;">—</span>';
       }
