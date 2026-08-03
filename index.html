@@ -1675,7 +1675,7 @@ function bragConfigForPlayerCount(n){
 
 class BragGame{
   constructor(playerDefs){
-    this.players = playerDefs.map(p=>({...p, score:0, hands:[], leftover:[], rawHand:[], bonusPoints:0, roundPointsWon:0, submitted:false}));
+    this.players = playerDefs.map(p=>({...p, score:0, hands:[], leftover:[], rawHand:[], bonusPoints:0, sweepBonus:0, roundPointsWon:0, submitted:false}));
     this.roundNum = 0;
     this.dealSize = null;
     this.maxHands = null;
@@ -1701,6 +1701,7 @@ class BragGame{
       p.hands = [];
       p.leftover = [];
       p.bonusPoints = 0; // computed once hands are finalized - see resolveRound()
+      p.sweepBonus = 0;
       p.roundPointsWon = 0;
       p.submitted = false;
     });
@@ -1786,6 +1787,16 @@ function resolveBragRound(g){
       else g.log.push(`${c.player.name} had all 4 ${c.rank}s in play, but it wasn't the highest — no bonus.`);
     });
   }
+  // Clean sweep bonus: +10 points if a player won every single hand they formed this round
+  // (a tie on any of their hands means they didn't win that one, so no sweep).
+  g.players.forEach(p=>{
+    p.sweepBonus = 0;
+    if(p.hands.length>0 && p.roundPointsWon===p.hands.length){
+      p.sweepBonus = 10;
+      p.score += 10;
+      g.log.push(`${p.name} won every hand this round — a clean sweep! +10 bonus points!`);
+    }
+  });
   g.slotResults.forEach(r=>{
     if(r.tie) g.log.push(`Hand ${r.slot+1}: tied, no one scores.`);
     else g.log.push(`Hand ${r.slot+1}: ${g.players.find(p=>p.id===r.winners[0]).name} wins${r.uncontested?' (uncontested)':''}.`);
@@ -1802,7 +1813,7 @@ function resolveBragRound(g){
 /* ======================= 3 CARD BRAG ONLINE ENGINE ======================= */
 function onlineBragInit(players){
   return {
-    players: players.map(p=>({id:p.id, name:p.name, deviceId:p.deviceId||null, score:0, hands:[], leftover:[], rawHand:[], bonusPoints:0, roundPointsWon:0, submitted:false})),
+    players: players.map(p=>({id:p.id, name:p.name, deviceId:p.deviceId||null, score:0, hands:[], leftover:[], rawHand:[], bonusPoints:0, sweepBonus:0, roundPointsWon:0, submitted:false})),
     roundNum: 0,
     dealSize: null, maxHands: null,
     slotResults: [],
@@ -1824,6 +1835,7 @@ function onlineBragStartRound(g){
     p.hands = [];
     p.leftover = [];
     p.bonusPoints = 0;
+    p.sweepBonus = 0;
     p.roundPointsWon = 0;
     p.submitted = false;
   });
@@ -7884,7 +7896,7 @@ function renderBragRulesPanel(){
     <p style="font-size:12px;opacity:.75;">Unlike poker, a Prial beats a Running Flush — that's the traditional 3 Card Brag rule.</p>
 
     <h4>Scoring</h4>
-    <p>Each player's best hand plays everyone else's best hand, second-best plays second-best, and so on. Winning a hand is worth 1 point. If a player has more hands than everyone else (because their cards sorted better), those extra hands win automatically since there's nothing to beat them. Holding all 4 cards of a rank in your dealt cards is worth a 10-point bonus. First to 101 points wins.</p>
+    <p>Each player's best hand plays everyone else's best hand, second-best plays second-best, and so on. Winning a hand is worth 1 point. If a player has more hands than everyone else (because their cards sorted better), those extra hands win automatically since there's nothing to beat them. Holding all 4 cards of a rank in play is worth a 10-point bonus (if more than one player has one, only the highest wins it). Winning every single hand you formed in a round — a clean sweep — is worth another 10-point bonus. First to 101 points wins.</p>
   `;
   return wrap;
 }
@@ -7957,7 +7969,7 @@ function renderBragScreen(){
   const table = document.createElement('table');
   table.className = 'brag-table';
   const headRow = document.createElement('tr');
-  headRow.innerHTML = '<th></th>' + game.players.map(p=>`<th>${p.name}${p.bonusPoints>0?' 🎉':''}</th>`).join('');
+  headRow.innerHTML = '<th></th>' + game.players.map(p=>`<th>${p.name}${p.bonusPoints>0?' 🎉':''}${p.sweepBonus>0?' 🧹':''}</th>`).join('');
   table.appendChild(headRow);
   for(let slot=0; slot<game.maxHands; slot++){
     const anyHasSlot = game.players.some(p=>p.hands.length>slot);
@@ -7990,6 +8002,12 @@ function renderBragScreen(){
       badge.innerHTML = `<span class="brag-bonus-badge">${p.name}: 4 of a kind — +10 pts</span>`;
       wrap.appendChild(badge);
     }
+    if(p.sweepBonus>0){
+      const badge = document.createElement('div');
+      badge.style.textAlign = 'center';
+      badge.innerHTML = `<span class="brag-bonus-badge">${p.name}: clean sweep — +10 pts</span>`;
+      wrap.appendChild(badge);
+    }
   });
 
   const nextBtn = document.createElement('div');
@@ -8005,7 +8023,7 @@ function renderBragScreen(){
   [...game.players].sort((a,b)=>b.score-a.score).forEach(p=>{
     const item = document.createElement('div');
     item.className = 'score-item' + (!p.isBot?' you':'');
-    item.innerHTML = `<span>${p.name}${p.isBot?' 🤖':''}</span><span>${p.score} pt${p.score!==1?'s':''} (+${p.roundPointsWon+p.bonusPoints})</span>`;
+    item.innerHTML = `<span>${p.name}${p.isBot?' 🤖':''}</span><span>${p.score} pt${p.score!==1?'s':''} (+${p.roundPointsWon+p.bonusPoints+p.sweepBonus})</span>`;
     scoreList.appendChild(item);
   });
   const logFeed = el.querySelector('.log-feed');
@@ -8588,7 +8606,7 @@ function renderBragOnlineReveal(el, g){
   const table = document.createElement('table');
   table.className = 'brag-table';
   const headRow = document.createElement('tr');
-  headRow.innerHTML = '<th></th>' + g.players.map(p=>`<th>${p.name}${p.deviceId===myDeviceId?' (you)':''}${p.bonusPoints>0?' 🎉':''}</th>`).join('');
+  headRow.innerHTML = '<th></th>' + g.players.map(p=>`<th>${p.name}${p.deviceId===myDeviceId?' (you)':''}${p.bonusPoints>0?' 🎉':''}${p.sweepBonus>0?' 🧹':''}</th>`).join('');
   table.appendChild(headRow);
   for(let slot=0; slot<g.maxHands; slot++){
     const anyHasSlot = g.players.some(p=>p.hands.length>slot);
@@ -8619,6 +8637,12 @@ function renderBragOnlineReveal(el, g){
       const badge = document.createElement('div');
       badge.style.textAlign = 'center';
       badge.innerHTML = `<span class="brag-bonus-badge">${p.name}: 4 of a kind — +10 pts</span>`;
+      wrap.appendChild(badge);
+    }
+    if(p.sweepBonus>0){
+      const badge = document.createElement('div');
+      badge.style.textAlign = 'center';
+      badge.innerHTML = `<span class="brag-bonus-badge">${p.name}: clean sweep — +10 pts</span>`;
       wrap.appendChild(badge);
     }
   });
