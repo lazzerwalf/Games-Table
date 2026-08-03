@@ -397,6 +397,17 @@
   .brag-mini-cards{display:flex;gap:3px;justify-content:center;margin-bottom:4px;}
   .brag-category-label{font-size:10.5px;color:#cfe4da;opacity:.85;}
   .brag-bonus-badge{display:inline-block;margin-top:6px;background:var(--gold);color:#1c1c1c;font-weight:700;font-size:10.5px;padding:2px 8px;border-radius:20px;}
+  .brag-pool{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin:14px 0;}
+  .brag-pool-card{cursor:pointer;transition:transform .1s ease;}
+  .brag-pool-card.selected{transform:translateY(-8px);}
+  .brag-pool-card .playing-card{box-shadow:0 0 0 2px transparent;}
+  .brag-pool-card.selected .playing-card{box-shadow:0 0 0 2px var(--gold-bright);}
+  .brag-slots-wrap{display:flex;flex-direction:column;gap:8px;margin:14px 0;max-width:520px;margin-left:auto;margin-right:auto;}
+  .brag-slot-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.05);}
+  .brag-slot-label2{font-size:12px;color:#cfe4da;opacity:.75;width:56px;flex-shrink:0;}
+  .brag-slot-cards{display:flex;gap:4px;flex:1;min-height:calc(58px * var(--card-scale));align-items:center;cursor:pointer;}
+  .brag-slot-empty2{font-size:12px;color:#cfe4da;opacity:.4;}
+  .brag-trash-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.15);}
 
   /* toast */
   .toast-banner{
@@ -1650,16 +1661,20 @@ function bragConfigForPlayerCount(n){
 
 class BragGame{
   constructor(playerDefs){
-    this.players = playerDefs.map(p=>({...p, score:0, hands:[], leftover:[], rawHand:[], bonusPoints:0, roundPointsWon:0}));
+    this.players = playerDefs.map(p=>({...p, score:0, hands:[], leftover:[], rawHand:[], bonusPoints:0, roundPointsWon:0, submitted:false}));
     this.roundNum = 0;
     this.dealSize = null;
     this.maxHands = null;
     this.slotResults = [];
+    this.phase = 'arranging'; // 'arranging' (humans building hands) -> 'reveal'
+    this.arrangeOrder = [];
+    this.arrangeIndex = 0;
     this.log = [];
     this.gameOver = false;
     this.winner = null;
   }
   getPlayer(id){ return this.players.find(p=>p.id===id); }
+  currentArranger(){ return this.getPlayer(this.arrangeOrder[this.arrangeIndex]); }
 
   startRound(){
     this.roundNum++;
@@ -1669,14 +1684,48 @@ class BragGame{
     const deck = shuffle(createDeck());
     this.players.forEach(p=>{
       p.rawHand = deck.splice(0, this.dealSize);
-      const sorted = autoSortBragHands(p.rawHand, this.maxHands);
-      p.hands = sorted.hands;
-      p.leftover = sorted.leftover;
+      p.hands = [];
+      p.leftover = [];
       p.bonusPoints = checkFourOfAKindBonus(p.rawHand) ? 10 : 0;
       p.roundPointsWon = 0;
+      p.submitted = false;
     });
+    // Bots have no real decision to make, so they auto-sort immediately.
+    this.players.forEach(p=>{
+      if(p.isBot){
+        const sorted = autoSortBragHands(p.rawHand, this.maxHands);
+        p.hands = sorted.hands;
+        p.leftover = sorted.leftover;
+        p.submitted = true;
+      }
+    });
+    this.arrangeOrder = this.players.filter(p=>!p.isBot).map(p=>p.id);
+    this.arrangeIndex = 0;
+    this.slotResults = [];
+    this.log = [`Round ${this.roundNum} — ${this.dealSize} cards each, up to ${this.maxHands} hand${this.maxHands!==1?'s':''}.`];
+    if(this.arrangeOrder.length===0){
+      this.phase = 'reveal';
+      this.resolveRound();
+    } else {
+      this.phase = 'arranging';
+    }
+  }
 
-    const maxSlots = Math.max(...this.players.map(p=>p.hands.length));
+  // Called once a human player has grouped their cards into hands, with anything left over as trash.
+  submitHands(playerId, hands, trash){
+    const player = this.getPlayer(playerId);
+    player.hands = hands;
+    player.leftover = trash;
+    player.submitted = true;
+    this.arrangeIndex++;
+    if(this.arrangeIndex >= this.arrangeOrder.length){
+      this.phase = 'reveal';
+      this.resolveRound();
+    }
+  }
+
+  resolveRound(){
+    const maxSlots = Math.max(...this.players.map(p=>p.hands.length), 0);
     this.slotResults = [];
     for(let slot=0; slot<maxSlots; slot++){
       const contenders = this.players.filter(p=>p.hands.length>slot);
@@ -1698,7 +1747,6 @@ class BragGame{
     }
     this.players.forEach(p=>{ if(p.bonusPoints>0) p.score += p.bonusPoints; });
 
-    this.log.push(`Round ${this.roundNum} — ${this.dealSize} cards each, up to ${this.maxHands} hand${this.maxHands!==1?'s':''}.`);
     this.players.forEach(p=>{
       if(p.bonusPoints>0) this.log.push(`${p.name} held all 4 of a rank — +10 bonus points!`);
     });
@@ -7774,6 +7822,7 @@ function renderBragScreen(){
   const el = document.createElement('div');
   el.className = 'game-screen';
   if(game.gameOver) return renderBragGameOver(el);
+  if(game.phase==='arranging') return renderBragArrangingScreen(el);
 
   el.innerHTML = `
     <div class="topbar">
@@ -7874,6 +7923,159 @@ function renderBragScreen(){
   });
   setupSidePanelToggle(el);
   return el;
+}
+
+let bragArrangeState = null; // {pool, selectedIds, hands, _forPlayerId}
+
+function startBragArrange(player){
+  bragArrangeState = {
+    pool: player.rawHand.map(c=>({...c})),
+    selectedIds: [],
+    hands: [],
+    _forPlayerId: player.id,
+  };
+}
+
+function renderBragArrangingScreen(el){
+  const arranger = game.currentArranger();
+  const multiHuman = game.players.filter(p=>!p.isBot).length > 1;
+  const needsShield = multiHuman && revealedForId !== arranger.id;
+
+  el.innerHTML = `
+    <div class="topbar">
+      <div class="topbar-title">3 Card Brag — Round ${game.roundNum}</div>
+      <div class="topbar-actions"><button id="menuBtn">Main menu</button></div>
+    </div>
+    <div class="table-area">
+      <div class="table-main" style="overflow-y:auto;position:relative;">
+        <div class="brag-arrange-wrap" style="padding:16px;"></div>
+      </div>
+    </div>
+  `;
+  el.querySelector('#menuBtn').addEventListener('click', ()=>{
+    if(confirm('Leave this game and return to the menu?')){
+      game=null; activeGameId=null; revealedForId=null; seatConfigs=[]; render();
+    }
+  });
+  el.querySelector('.topbar-actions').prepend(renderMuteControl());
+
+  const wrap = el.querySelector('.brag-arrange-wrap');
+
+  if(needsShield){
+    const shield = document.createElement('div');
+    shield.className = 'privacy-shield';
+    shield.style.position = 'static';
+    shield.style.minHeight = '320px';
+    shield.innerHTML = `
+      <div class="display">Pass the device to ${arranger.name}</div>
+      <div style="opacity:.75;font-size:13px;">Everyone else, look away.</div>
+      <button class="primary-btn" style="width:auto;padding:12px 26px;">I'm ${arranger.name} — reveal my cards</button>
+    `;
+    shield.querySelector('button').addEventListener('click', ()=>{ revealedForId = arranger.id; render(); });
+    wrap.appendChild(shield);
+    return el;
+  }
+
+  if(!bragArrangeState || bragArrangeState._forPlayerId !== arranger.id){
+    startBragArrange(arranger);
+  }
+
+  const title = document.createElement('div');
+  title.style.cssText = 'text-align:center;margin-bottom:6px;';
+  title.innerHTML = `<div class="menu-eyebrow">${arranger.name}'s cards</div><p style="font-size:13px;color:#cfe4da;opacity:.8;">Tap 3 cards to form a hand — up to ${game.maxHands} hands. Anything left unassigned gets trashed.</p>`;
+  wrap.appendChild(title);
+
+  const poolRow = document.createElement('div');
+  poolRow.className = 'brag-pool';
+  sortTrumpsHand(bragArrangeState.pool).forEach(c=>{
+    const tokenWrap = document.createElement('div');
+    tokenWrap.className = 'brag-pool-card' + (bragArrangeState.selectedIds.includes(c.id)?' selected':'');
+    tokenWrap.appendChild(makeCardEl(c, 'mini'));
+    tokenWrap.addEventListener('click', ()=> onBragCardClick(c.id));
+    poolRow.appendChild(tokenWrap);
+  });
+  wrap.appendChild(poolRow);
+
+  const slotsWrap = document.createElement('div');
+  slotsWrap.className = 'brag-slots-wrap';
+  for(let i=0;i<game.maxHands;i++){
+    const row = document.createElement('div');
+    row.className = 'brag-slot-row';
+    const label = document.createElement('div');
+    label.className = 'brag-slot-label2';
+    label.textContent = `Hand ${i+1}`;
+    row.appendChild(label);
+    const cardsArea = document.createElement('div');
+    cardsArea.className = 'brag-slot-cards';
+    if(bragArrangeState.hands[i]){
+      bragArrangeState.hands[i].forEach(c=> cardsArea.appendChild(makeCardEl(c, 'mini')));
+      const catLabel = document.createElement('div');
+      catLabel.style.cssText = 'font-size:11px;color:var(--gold-bright);margin-left:8px;';
+      catLabel.textContent = bragHandLabel(bragArrangeState.hands[i]);
+      cardsArea.appendChild(catLabel);
+      cardsArea.title = 'Tap to undo';
+      cardsArea.addEventListener('click', ()=> onBragUndoHand(i));
+    } else {
+      cardsArea.innerHTML = '<span class="brag-slot-empty2">Select 3 cards…</span>';
+    }
+    row.appendChild(cardsArea);
+    slotsWrap.appendChild(row);
+  }
+  wrap.appendChild(slotsWrap);
+
+  const trashRow = document.createElement('div');
+  trashRow.className = 'brag-trash-row';
+  trashRow.innerHTML = `<div class="brag-slot-label2">Trash</div><div style="font-size:12px;color:#cfe4da;opacity:.7;">${bragArrangeState.pool.length} unassigned card${bragArrangeState.pool.length!==1?'s':''} will be discarded</div>`;
+  wrap.appendChild(trashRow);
+
+  const submitBtn = document.createElement('button');
+  submitBtn.className = 'primary-btn';
+  submitBtn.textContent = bragArrangeState.hands.length===0 ? 'Submit (no hands formed)' : 'Submit hands';
+  submitBtn.style.cssText = 'display:block;margin:20px auto 0;width:auto;padding:14px 26px;';
+  submitBtn.addEventListener('click', ()=> onBragSubmit());
+  wrap.appendChild(submitBtn);
+
+  return el;
+}
+
+function onBragCardClick(cardId){
+  if(!bragArrangeState) return;
+  const idx = bragArrangeState.selectedIds.indexOf(cardId);
+  if(idx!==-1){ bragArrangeState.selectedIds.splice(idx,1); render(); return; }
+  if(bragArrangeState.hands.length >= game.maxHands) return;
+  if(bragArrangeState.selectedIds.length>=3) return;
+  bragArrangeState.selectedIds.push(cardId);
+  if(bragArrangeState.selectedIds.length===3){
+    const selectedCards = bragArrangeState.selectedIds.map(id=> bragArrangeState.pool.find(c=>c.id===id));
+    bragArrangeState.hands.push(selectedCards);
+    bragArrangeState.pool = bragArrangeState.pool.filter(c=> !bragArrangeState.selectedIds.includes(c.id));
+    bragArrangeState.selectedIds = [];
+    sfxCardPlay();
+  }
+  render();
+}
+
+function onBragUndoHand(handIndex){
+  if(!bragArrangeState) return;
+  const hand = bragArrangeState.hands[handIndex];
+  if(!hand) return;
+  bragArrangeState.pool = [...bragArrangeState.pool, ...hand];
+  bragArrangeState.hands.splice(handIndex,1);
+  sfxSelect();
+  render();
+}
+
+function onBragSubmit(){
+  if(!bragArrangeState) return;
+  const arranger = game.currentArranger();
+  const trash = [...bragArrangeState.pool];
+  const hands = bragArrangeState.hands;
+  bragArrangeState = null;
+  game.submitHands(arranger.id, hands, trash);
+  const multiHuman = game.players.filter(p=>!p.isBot).length > 1;
+  revealedForId = multiHuman ? null : revealedForId;
+  sfxSelect();
+  render();
 }
 
 function renderBragGameOver(el){
