@@ -1712,9 +1712,10 @@ class BragGame{
   }
 
   // Called once a human player has grouped their cards into hands, with anything left over as trash.
+  // Hands get sorted strongest-to-weakest here, since the player may have built them in any order.
   submitHands(playerId, hands, trash){
     const player = this.getPlayer(playerId);
-    player.hands = hands;
+    player.hands = [...hands].sort((a,b)=> compareBragHands(b,a));
     player.leftover = trash;
     player.submitted = true;
     this.arrangeIndex++;
