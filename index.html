@@ -451,6 +451,12 @@
   .bonk-popup .tier{font-family:'Fraunces',serif;font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:#ffd9a0;margin-bottom:6px;}
   .bonk-popup .headline{font-family:'Fraunces',serif;font-size:38px;font-weight:800;color:#fff;line-height:1.05;text-shadow:0 3px 10px rgba(0,0,0,.4);}
   .bonk-popup .sub{margin-top:10px;font-size:14px;color:#ffe3e3;opacity:.95;}
+  @keyframes bonkCardFlash{
+    0%, 100% { box-shadow: none; transform: scale(1); }
+    15%, 45%, 75% { box-shadow: 0 0 0 3px var(--red), 0 0 20px rgba(178,58,72,.75); transform: scale(1.05); }
+    30%, 60%, 90% { box-shadow: none; transform: scale(1); }
+  }
+  .opponent.just-bonked{ animation: bonkCardFlash 2.6s ease; }
 
   /* Hover effects only for devices with a real mouse/pointer. On touchscreens, a tap can
      trigger :hover without ever "leaving" the element (no cursor to move away), leaving
@@ -3111,6 +3117,9 @@ function bonkVictimLabel(victim, isOnline){
   return victim.name.toUpperCase();
 }
 
+let bonkFlashPlayerId = null;
+let bonkFlashTimeout = null;
+
 function showBonkPopup(bonkEvent, victim, isOnline){
   const label = bonkVictimLabel(victim, isOnline);
   const overlay = document.createElement('div');
@@ -3124,10 +3133,19 @@ function showBonkPopup(bonkEvent, victim, isOnline){
   `;
   document.body.appendChild(overlay);
   requestAnimationFrame(()=> overlay.classList.add('show'));
+  const duration = 2600;
   setTimeout(()=>{
     overlay.classList.remove('show');
     setTimeout(()=> overlay.remove(), 250);
-  }, 1600);
+  }, duration);
+
+  bonkFlashPlayerId = victim.id;
+  if(bonkFlashTimeout) clearTimeout(bonkFlashTimeout);
+  bonkFlashTimeout = setTimeout(()=>{
+    bonkFlashPlayerId = null;
+    bonkFlashTimeout = null;
+    render();
+  }, duration);
 }
 
 // Wraps game.playCard so every play (human or bot) is checked for a "last card" moment.
@@ -5514,7 +5532,7 @@ function renderBonkOnlineGame(el, g){
   const oppRow = el.querySelector('.opponents-row');
   g.players.filter(p=>!p.eliminated).forEach(p=>{
     const div = document.createElement('div');
-    div.className = 'opponent' + (p.id===cp.id ? ' active-turn' : '');
+    div.className = 'opponent' + (p.id===cp.id ? ' active-turn' : '') + (p.id===bonkFlashPlayerId ? ' just-bonked' : '');
     div.innerHTML = `
       ${p.id===g.dealerId ? '<div class="dealer-chip">D</div>' : ''}
       <div class="name">${p.name}${p.isBot?' 🤖':''}${p.deviceId===myDeviceId?' (you)':''}</div>
@@ -6304,7 +6322,7 @@ function renderBonkScreen(){
   const oppRow = el.querySelector('.opponents-row');
   game.activePlayers().forEach(p=>{
     const div = document.createElement('div');
-    div.className = 'opponent' + (p.id===cp.id ? ' active-turn' : '');
+    div.className = 'opponent' + (p.id===cp.id ? ' active-turn' : '') + (p.id===bonkFlashPlayerId ? ' just-bonked' : '');
     div.innerHTML = `
       ${p.id===game.dealerId ? '<div class="dealer-chip">D</div>' : ''}
       <div class="name">${p.name}${p.isBot?' 🤖':''}</div>
