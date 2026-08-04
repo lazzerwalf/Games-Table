@@ -436,6 +436,22 @@
   }
   .toast-banner.show{opacity:1;transform:translateX(-50%) translateY(0);}
 
+  .bonk-popup-overlay{
+    position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    z-index:200;pointer-events:none;opacity:0;transition:opacity .2s ease;
+  }
+  .bonk-popup-overlay.show{opacity:1;}
+  .bonk-popup{
+    text-align:center;padding:28px 40px;border-radius:20px;
+    background:linear-gradient(160deg, rgba(178,58,72,.96), rgba(90,20,28,.96));
+    box-shadow:0 20px 60px rgba(0,0,0,.55), 0 0 0 2px rgba(255,255,255,.15);
+    transform:scale(.7) rotate(-2deg);transition:transform .25s cubic-bezier(.34,1.56,.64,1);
+  }
+  .bonk-popup-overlay.show .bonk-popup{transform:scale(1) rotate(-1deg);}
+  .bonk-popup .tier{font-family:'Fraunces',serif;font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:#ffd9a0;margin-bottom:6px;}
+  .bonk-popup .headline{font-family:'Fraunces',serif;font-size:38px;font-weight:800;color:#fff;line-height:1.05;text-shadow:0 3px 10px rgba(0,0,0,.4);}
+  .bonk-popup .sub{margin-top:10px;font-size:14px;color:#ffe3e3;opacity:.95;}
+
   /* Hover effects only for devices with a real mouse/pointer. On touchscreens, a tap can
      trigger :hover without ever "leaving" the element (no cursor to move away), leaving
      things like a lifted card stuck in that state until something else is tapped. */
@@ -1060,7 +1076,7 @@ class BonkGame{
       const victim = this.getPlayer(victimEntry.playerId);
       const tierName = tier===1?'BONK':tier===2?'Double BONK':tier===3?'Triple BONK':`${tier}x BONK`;
       victim.lives -= tier;
-      this.log.push(`${tierName}! ${victim.name} loses ${tier} life${tier!==1?'s':''} (${victim.lives} left).`);
+      this.log.push(`${tierName}! ${victim.name} loses ${tier} ${tier!==1?'lives':'life'} (${victim.lives} left).`);
       bonkEvent = {tierName, victimId: victim.id, victimName: victim.name, lifeLoss: tier};
       if(victim.lives<=0 && !victim.eliminated){
         victim.eliminated = true;
@@ -3084,6 +3100,34 @@ function showToast(message){
     el.classList.remove('show');
     setTimeout(()=> el.remove(), 350);
   }, 2200);
+}
+
+// For local pass-and-play, "YOU" only makes sense if there's exactly one human at the table -
+// with several humans sharing the device there's no single "you" to personalize for.
+function bonkVictimLabel(victim, isOnline){
+  if(isOnline) return victim.deviceId===myDeviceId ? 'YOU' : victim.name.toUpperCase();
+  const humanCount = game && game.players ? game.players.filter(p=>!p.isBot).length : 1;
+  if(!victim.isBot && humanCount<=1) return 'YOU';
+  return victim.name.toUpperCase();
+}
+
+function showBonkPopup(bonkEvent, victim, isOnline){
+  const label = bonkVictimLabel(victim, isOnline);
+  const overlay = document.createElement('div');
+  overlay.className = 'bonk-popup-overlay';
+  overlay.innerHTML = `
+    <div class="bonk-popup">
+      <div class="tier">${bonkEvent.tierName}</div>
+      <div class="headline">${label} GOT BONKED</div>
+      <div class="sub">${bonkEvent.lifeLoss} ${bonkEvent.lifeLoss!==1?'lives':'life'} lost</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  requestAnimationFrame(()=> overlay.classList.add('show'));
+  setTimeout(()=>{
+    overlay.classList.remove('show');
+    setTimeout(()=> overlay.remove(), 250);
+  }, 1600);
 }
 
 // Wraps game.playCard so every play (human or bot) is checked for a "last card" moment.
@@ -5271,8 +5315,8 @@ async function onlineBonkPlayCard(cardId){
   if(result.bonkEvent){
     const be = result.bonkEvent;
     sfxBonk(be.lifeLoss);
-    showToast(`💥 ${be.tierName}! ${be.victimName} loses ${be.lifeLoss} life${be.lifeLoss!==1?'s':''}!`);
     const victim = g.getPlayer(be.victimId);
+    showBonkPopup(be, victim, true);
     if(victim && victim.eliminated) sfxEliminated();
   }
   if(g.gameOver) sfxWin();
@@ -5313,8 +5357,8 @@ function maybeDriveOnlineBonkBotTurn(){
     if(result.bonkEvent){
       const be = result.bonkEvent;
       sfxBonk(be.lifeLoss);
-      showToast(`💥 ${be.tierName}! ${be.victimName} loses ${be.lifeLoss} life${be.lifeLoss!==1?'s':''}!`);
       const victim = g2.getPlayer(be.victimId);
+      showBonkPopup(be, victim, true);
       if(victim && victim.eliminated) sfxEliminated();
     }
     if(g2.gameOver) sfxWin();
@@ -6427,8 +6471,8 @@ function onBonkPlayCard(playerId, cardId){
   if(result.bonkEvent){
     const be = result.bonkEvent;
     sfxBonk(be.lifeLoss);
-    showToast(`💥 ${be.tierName}! ${be.victimName} loses ${be.lifeLoss} life${be.lifeLoss!==1?'s':''}!`);
     const victim = game.getPlayer(be.victimId);
+    showBonkPopup(be, victim, false);
     if(victim && victim.eliminated) sfxEliminated();
   }
   if(game.gameOver) sfxWin();
@@ -6467,8 +6511,8 @@ function runBonkBotTurn(bot){
   if(result.bonkEvent){
     const be = result.bonkEvent;
     sfxBonk(be.lifeLoss);
-    showToast(`💥 ${be.tierName}! ${be.victimName} loses ${be.lifeLoss} life${be.lifeLoss!==1?'s':''}!`);
     const victim = game.getPlayer(be.victimId);
+    showBonkPopup(be, victim, false);
     if(victim && victim.eliminated) sfxEliminated();
   }
   if(game.gameOver) sfxWin();
