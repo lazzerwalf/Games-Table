@@ -5468,12 +5468,12 @@ function renderBonkOnlineGame(el, g){
   el.querySelector('.topbar-actions').prepend(renderCardScaleControl());
 
   const oppRow = el.querySelector('.opponents-row');
-  g.players.filter(p=>p.deviceId!==myDeviceId && !p.eliminated).forEach(p=>{
+  g.players.filter(p=>!p.eliminated).forEach(p=>{
     const div = document.createElement('div');
     div.className = 'opponent' + (p.id===cp.id ? ' active-turn' : '');
     div.innerHTML = `
       ${p.id===g.dealerId ? '<div class="dealer-chip">D</div>' : ''}
-      <div class="name">${p.name}${p.isBot?' 🤖':''}</div>
+      <div class="name">${p.name}${p.isBot?' 🤖':''}${p.deviceId===myDeviceId?' (you)':''}</div>
       <div class="score bonk-lives">${p.lives} ❤️</div>
       <div class="cardcount">${p.hand.length} card${p.hand.length!==1?'s':''}</div>
     `;
@@ -6258,8 +6258,7 @@ function renderBonkScreen(){
   el.querySelector('.topbar-actions').prepend(renderCardScaleControl());
 
   const oppRow = el.querySelector('.opponents-row');
-  game.activePlayers().filter(p=>p.id!==(multiHuman?null:humanPlayersBonk()[0]?.id)).forEach(p=>{
-    if(!multiHuman && !p.isBot) return;
+  game.activePlayers().forEach(p=>{
     const div = document.createElement('div');
     div.className = 'opponent' + (p.id===cp.id ? ' active-turn' : '');
     div.innerHTML = `
