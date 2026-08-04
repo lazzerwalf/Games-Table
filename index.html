@@ -34,7 +34,7 @@
   }
   h1,h2,h3,.display{font-family:'Fraunces',serif;}
   button{font-family:'Inter',sans-serif;cursor:pointer;}
-  #app{height:100vh;height:100dvh;height:calc(var(--vh, 1vh) * 100);overflow:hidden;display:flex;flex-direction:column;}
+  #app{height:100vh;height:calc(var(--vh, 1vh) * 100);height:100dvh;overflow:hidden;display:flex;flex-direction:column;}
 
   /* ---------- MENU ---------- */
   .menu-screen{
@@ -492,9 +492,10 @@ if(window.visualViewport){
   window.visualViewport.addEventListener('scroll', setRealViewportHeight);
 }
 // Safari's address bar can settle into a different (collapsed) state a moment after the
-// page first loads, without firing a resize event — re-check a couple of times to catch that.
+// page first loads, without firing a resize event — re-check a few times to catch that.
 setTimeout(setRealViewportHeight, 300);
 setTimeout(setRealViewportHeight, 1000);
+setTimeout(setRealViewportHeight, 2000);
 
 /* ======================= ENGINE ======================= */
 const SUITS = ['S','H','D','C'];
