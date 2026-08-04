@@ -1030,6 +1030,8 @@ class BonkGame{
     this.roundComplete = false; // true once everyone's hand is empty, waiting for "next round"
     this.gameOver = false;
     this.winner = null;
+    this.bonkSeq = 0; // increments on every bonk, so other devices can detect a new one via polling
+    this.lastBonkEvent = null;
   }
   activePlayers(){ return this.players.filter(p=>!p.eliminated); }
   getPlayer(id){ return this.players.find(p=>p.id===id); }
@@ -1084,6 +1086,8 @@ class BonkGame{
       victim.lives -= tier;
       this.log.push(`${tierName}! ${victim.name} loses ${tier} ${tier!==1?'lives':'life'} (${victim.lives} left).`);
       bonkEvent = {tierName, victimId: victim.id, victimName: victim.name, lifeLoss: tier};
+      this.bonkSeq++;
+      this.lastBonkEvent = {...bonkEvent, seq: this.bonkSeq};
       if(victim.lives<=0 && !victim.eliminated){
         victim.eliminated = true;
         this.log.push(`${victim.name} is out of lives and eliminated!`);
@@ -2369,6 +2373,9 @@ async function pollOnlineRoom(){
   const changed = !onlineRoomState || room.version !== onlineRoomState.version;
   if(changed){
     onlineRoomState = room;
+    if(room.gameType==='bonk' && room.phase==='playing' && room.game){
+      maybeShowBonkPopupFromState(reconstituteBonkGame(room.game), true);
+    }
     render();
   }
   // Always re-check bot-turn status on every poll tick (not just on a detected change) as a
@@ -3119,6 +3126,21 @@ function bonkVictimLabel(victim, isOnline){
 
 let bonkFlashPlayerId = null;
 let bonkFlashTimeout = null;
+let bonkShownSeqByRoom = {};
+// Checks a (possibly freshly-synced) game state for a bonk event this device hasn't shown yet,
+// and shows it if so. Works the same whether this device caused the bonk or just found out about
+// it via polling, so everyone sees the popup, not just whoever played the card.
+function maybeShowBonkPopupFromState(g, isOnline){
+  if(!g || !g.lastBonkEvent) return;
+  const key = isOnline ? onlineRoomCode : 'local';
+  if(g.roundNum===1 && g.bonkSeq<=1) delete bonkShownSeqByRoom[key]; // fresh game/rematch safety net
+  const lastShown = bonkShownSeqByRoom[key] !== undefined ? bonkShownSeqByRoom[key] : -1;
+  if(g.lastBonkEvent.seq > lastShown){
+    bonkShownSeqByRoom[key] = g.lastBonkEvent.seq;
+    const victim = g.getPlayer(g.lastBonkEvent.victimId);
+    if(victim) showBonkPopup(g.lastBonkEvent, victim, isOnline);
+  }
+}
 
 function showBonkPopup(bonkEvent, victim, isOnline){
   const label = bonkVictimLabel(victim, isOnline);
@@ -5229,6 +5251,8 @@ function serializeBonkGame(g){
     roundComplete: g.roundComplete,
     gameOver: g.gameOver,
     winnerId: g.winner ? g.winner.id : null,
+    bonkSeq: g.bonkSeq,
+    lastBonkEvent: g.lastBonkEvent,
   };
 }
 function reconstituteBonkGame(s){
@@ -5245,6 +5269,8 @@ function reconstituteBonkGame(s){
   g.roundComplete = s.roundComplete;
   g.gameOver = s.gameOver;
   g.winner = (s.gameOver && s.winnerId) ? g.players.find(p=>p.id===s.winnerId) : null;
+  g.bonkSeq = s.bonkSeq || 0;
+  g.lastBonkEvent = s.lastBonkEvent || null;
   return g;
 }
 
@@ -5333,8 +5359,8 @@ async function onlineBonkPlayCard(cardId){
   if(result.bonkEvent){
     const be = result.bonkEvent;
     sfxBonk(be.lifeLoss);
+    maybeShowBonkPopupFromState(g, true);
     const victim = g.getPlayer(be.victimId);
-    showBonkPopup(be, victim, true);
     if(victim && victim.eliminated) sfxEliminated();
   }
   if(g.gameOver) sfxWin();
@@ -5375,8 +5401,8 @@ function maybeDriveOnlineBonkBotTurn(){
     if(result.bonkEvent){
       const be = result.bonkEvent;
       sfxBonk(be.lifeLoss);
+      maybeShowBonkPopupFromState(g2, true);
       const victim = g2.getPlayer(be.victimId);
-      showBonkPopup(be, victim, true);
       if(victim && victim.eliminated) sfxEliminated();
     }
     if(g2.gameOver) sfxWin();
@@ -6489,8 +6515,8 @@ function onBonkPlayCard(playerId, cardId){
   if(result.bonkEvent){
     const be = result.bonkEvent;
     sfxBonk(be.lifeLoss);
+    maybeShowBonkPopupFromState(game, false);
     const victim = game.getPlayer(be.victimId);
-    showBonkPopup(be, victim, false);
     if(victim && victim.eliminated) sfxEliminated();
   }
   if(game.gameOver) sfxWin();
@@ -6529,8 +6555,8 @@ function runBonkBotTurn(bot){
   if(result.bonkEvent){
     const be = result.bonkEvent;
     sfxBonk(be.lifeLoss);
+    maybeShowBonkPopupFromState(game, false);
     const victim = game.getPlayer(be.victimId);
-    showBonkPopup(be, victim, false);
     if(victim && victim.eliminated) sfxEliminated();
   }
   if(game.gameOver) sfxWin();
