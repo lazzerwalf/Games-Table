@@ -8868,6 +8868,21 @@ function renderHigherLowerScreen(){
   const wrap = el.querySelector('.hl-wrap');
   const cp = game.currentPlayer();
 
+  const leaderboard = document.createElement('div');
+  leaderboard.className = 'pig-leaderboard';
+  [...game.players].sort((a,b)=>b.score-a.score).forEach(p=>{
+    const card = document.createElement('div');
+    card.className = 'pig-player-card' + (p.id===cp.id ? ' active-turn' : '');
+    const pct = Math.max(0, Math.min(100, Math.round((p.score/50)*100)));
+    card.innerHTML = `
+      <div class="pig-name">${p.name}${p.isBot?' 🤖':''}</div>
+      <div class="pig-score">${p.score}</div>
+      <div class="pig-progress-bar"><div class="pig-progress-fill" style="width:${pct}%;"></div></div>
+    `;
+    leaderboard.appendChild(card);
+  });
+  wrap.appendChild(leaderboard);
+
   const turnBanner = document.createElement('div');
   turnBanner.className = 'hl-turn-banner';
   turnBanner.textContent = hlShowingResult ? '\u00A0' : `${cp.name}'s turn`;
@@ -9308,6 +9323,21 @@ function renderHLOnlineGame(el, g){
   const wrap = el.querySelector('.hl-wrap');
   const cp = g.currentPlayer();
   const isMyTurn = cp.deviceId===myDeviceId;
+
+  const leaderboard = document.createElement('div');
+  leaderboard.className = 'pig-leaderboard';
+  [...g.players].sort((a,b)=>b.score-a.score).forEach(p=>{
+    const card = document.createElement('div');
+    card.className = 'pig-player-card' + (p.id===cp.id ? ' active-turn' : '');
+    const pct = Math.max(0, Math.min(100, Math.round((p.score/50)*100)));
+    card.innerHTML = `
+      <div class="pig-name">${p.name}${p.isBot?' 🤖':''}${p.deviceId===myDeviceId?' (you)':''}</div>
+      <div class="pig-score">${p.score}</div>
+      <div class="pig-progress-bar"><div class="pig-progress-fill" style="width:${pct}%;"></div></div>
+    `;
+    leaderboard.appendChild(card);
+  });
+  wrap.appendChild(leaderboard);
 
   const turnBanner = document.createElement('div');
   turnBanner.className = 'hl-turn-banner';
