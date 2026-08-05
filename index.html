@@ -9994,7 +9994,9 @@ function maybeRunUYCBotTurn(){
       game.drawCard(source);
       sfxCardFlip();
       render();
-      setTimeout(()=> maybeRunUYCBotTurn(), 500);
+      // A bit of extra time when taking from the pile specifically, so there's a chance to read
+      // which card they took (a deck draw is hidden, so there's nothing extra to read there).
+      setTimeout(()=> maybeRunUYCBotTurn(), source==='discard' ? 1000 : 500);
       return;
     }
     if(game.phase==='discard'){
