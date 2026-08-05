@@ -2126,7 +2126,9 @@ class UpYouComeGame{
     }
     player.hand.push(card);
     this.lastDrawnCardId = card.id;
-    this.log.push(`${player.name} ${source==='discard'?'takes the top card from the pile':'draws from the deck'}.`);
+    this.log.push(source==='discard'
+      ? `${player.name} takes the ${card.rank}${SUIT_SYM[card.suit]} from the pile.`
+      : `${player.name} draws from the deck.`);
     this.phase = 'discard';
     return card;
   }
