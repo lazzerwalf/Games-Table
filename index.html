@@ -1998,7 +1998,6 @@ class HigherLowerGame{
 
 /* ======================= UP YOU COME ENGINE ======================= */
 const UYC_RANK_LOW = {'A':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':11,'Q':12,'K':13};
-const UYC_RANK_HIGH = {'A':14,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':11,'Q':12,'K':13};
 
 function uycIsConsecutive(sortedValues){
   for(let i=1;i<sortedValues.length;i++){
@@ -2008,7 +2007,7 @@ function uycIsConsecutive(sortedValues){
 }
 
 // A valid group of 3 or 4 cards is either a "set" (same rank, all different suits) or a "run"
-// (same suit, consecutive ranks - Ace can be low as A-2-3 or high as Q-K-A, but doesn't wrap).
+// (same suit, consecutive ranks - Ace is always low, so A-2-3 works but Q-K-A does not).
 function uycIsValidGroup(cards){
   const n = cards.length;
   if(n!==3 && n!==4) return false;
@@ -2017,8 +2016,7 @@ function uycIsValidGroup(cards){
   if(uniqueRanks.size===1 && uniqueSuits.size===n) return true; // set
   if(uniqueSuits.size===1){
     const valuesLow = cards.map(c=>UYC_RANK_LOW[c.rank]).sort((a,b)=>a-b);
-    const valuesHigh = cards.map(c=>UYC_RANK_HIGH[c.rank]).sort((a,b)=>a-b);
-    if(uycIsConsecutive(valuesLow) || uycIsConsecutive(valuesHigh)) return true; // run
+    if(uycIsConsecutive(valuesLow)) return true; // run
   }
   return false;
 }
@@ -9729,7 +9727,7 @@ function renderUpYouComeRulesPanel(){
     <h4>Winning</h4>
     <p>Your aim is to arrange your 7 cards into a group of 3 and a group of 4. Each group can be either:</p>
     <ul>
-      <li>A <strong>run</strong> — 3 or 4 cards in a row, all the same suit (like 4-5-6 of spades). Ace can be low (A-2-3) or high (Q-K-A), but doesn't wrap around.</li>
+      <li>A <strong>run</strong> — 3 or 4 cards in a row, all the same suit (like 4-5-6 of spades). Ace is always low, so A-2-3 works but Q-K-A does not.</li>
       <li>A <strong>set</strong> — 3 or 4 cards of the same rank, all different suits (like A-A-A-A or 6-6-6).</li>
     </ul>
     <p>The moment your 7 cards split cleanly into a valid group of 3 and a valid group of 4, you win the hand.</p>
