@@ -9755,6 +9755,11 @@ function renderUpYouComeScreen(){
   const cp = game.currentPlayer();
   const multiHuman = humanPlayersUYC().length > 1;
   const needsShield = multiHuman && !cp.isBot && revealedForId !== cp.id;
+  // Whose hand to display: in solo-vs-bots play this is always the one human, staying visible
+  // through every bot turn. In pass-and-play, it's whoever last revealed their hand - also stays
+  // visible through bot turns, only re-hiding once a *different* human's turn comes up.
+  const displayPlayer = !multiHuman ? humanPlayersUYC()[0] : (revealedForId ? game.getPlayer(revealedForId) : null);
+  const isMyTurn = displayPlayer && cp.id === displayPlayer.id;
 
   el.innerHTML = `
     <div class="topbar">
@@ -9834,12 +9839,12 @@ function renderUpYouComeScreen(){
 
   wrap.appendChild(tableRow);
 
-  if(game.phase==='draw' && !cp.isBot && !needsShield){
+  if(game.phase==='draw' && isMyTurn && !needsShield){
     const hint = document.createElement('div');
     hint.className = 'uyc-hint';
     hint.textContent = 'Tap the deck to draw, or the discard pile to take that card.';
     wrap.appendChild(hint);
-  } else if((game.phase==='discard' || game.phase==='opening-discard') && !cp.isBot && !needsShield){
+  } else if((game.phase==='discard' || game.phase==='opening-discard') && isMyTurn && !needsShield){
     const hint = document.createElement('div');
     hint.className = 'uyc-hint';
     hint.textContent = game.phase==='opening-discard' ? 'Choose a card to lay down and start the pile.' : 'Choose a card to discard.';
@@ -9851,14 +9856,19 @@ function renderUpYouComeScreen(){
     wrap.appendChild(hint);
   }
 
-  if(!needsShield && !cp.isBot){
+  if(displayPlayer && !needsShield){
+    const handLabel = document.createElement('div');
+    handLabel.className = 'uyc-hint';
+    handLabel.style.marginBottom = '4px';
+    handLabel.textContent = multiHuman ? `${displayPlayer.name}'s hand` : 'Your hand';
+    wrap.appendChild(handLabel);
     const handRow = document.createElement('div');
     handRow.className = 'uyc-hand-row';
-    const canDiscard = game.phase==='discard' || game.phase==='opening-discard';
-    sortUYCHand(cp.hand).forEach(c=>{
+    const canDiscard = isMyTurn && (game.phase==='discard' || game.phase==='opening-discard');
+    sortUYCHand(displayPlayer.hand).forEach(c=>{
       const cardEl = makeCardEl(c, 'normal');
       cardEl.classList.add('uyc-hand-card');
-      if(c.id === game.lastDrawnCardId && game.phase==='discard') cardEl.classList.add('just-drawn');
+      if(c.id === game.lastDrawnCardId && game.phase==='discard' && isMyTurn) cardEl.classList.add('just-drawn');
       if(canDiscard){
         cardEl.addEventListener('click', ()=> onUYCDiscard(c.id));
       } else {
@@ -9917,7 +9927,6 @@ function onUYCDiscard(cardId){
   } catch(e){ return; }
   sfxCardPlay();
   if(game.gameOver){ sfxWin(); render(); return; }
-  revealedForId = null;
   render();
   maybeRunUYCBotTurn();
 }
