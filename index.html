@@ -417,6 +417,24 @@
   .hl-result-banner.wrong{color:var(--red);}
   .hl-result-banner.tie{color:#cfe4da;}
   .hl-turn-banner{text-align:center;font-size:14px;color:#cfe4da;opacity:.85;margin-bottom:6px;}
+
+  /* up you come */
+  .uyc-table{display:flex;align-items:flex-start;justify-content:center;gap:28px;margin:16px 0 10px;flex-wrap:wrap;}
+  .uyc-pile-col{text-align:center;}
+  .uyc-pile-label{font-size:11px;color:#cfe4da;opacity:.75;margin-top:6px;}
+  .uyc-pile-empty{width:80px;height:112px;border-radius:10px;border:2px dashed rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;color:#cfe4da;opacity:.4;font-size:11px;}
+  .uyc-action-row{display:flex;gap:14px;justify-content:center;margin:16px 0;flex-wrap:wrap;}
+  .uyc-action-btn{
+    padding:14px 22px;border-radius:14px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);
+    color:var(--cream);cursor:pointer;font-size:14px;text-align:center;
+  }
+  .uyc-action-btn:disabled{opacity:.3;cursor:not-allowed;}
+  .uyc-hand-row{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin:16px 0;padding:0 8px;}
+  .uyc-hand-card{cursor:pointer;transition:transform .1s ease;}
+  .uyc-hand-card:hover{transform:translateY(-4px);}
+  .uyc-hint{text-align:center;font-size:13px;color:#cfe4da;opacity:.85;margin:10px 0;}
+  .uyc-win-group{display:flex;gap:6px;justify-content:center;margin:10px 0;}
+  .uyc-win-group-label{font-size:11px;color:var(--gold-bright);text-align:center;margin-bottom:4px;text-transform:uppercase;letter-spacing:.08em;}
   .brag-pool{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin:14px 0;}
   .brag-pool-card{cursor:pointer;transition:transform .1s ease;}
   .brag-pool-card.selected{transform:translateY(-8px);}
@@ -1977,6 +1995,154 @@ class HigherLowerGame{
   }
 }
 
+/* ======================= UP YOU COME ENGINE ======================= */
+const UYC_RANK_LOW = {'A':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':11,'Q':12,'K':13};
+const UYC_RANK_HIGH = {'A':14,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':11,'Q':12,'K':13};
+
+function uycIsConsecutive(sortedValues){
+  for(let i=1;i<sortedValues.length;i++){
+    if(sortedValues[i] - sortedValues[i-1] !== 1) return false;
+  }
+  return true;
+}
+
+// A valid group of 3 or 4 cards is either a "set" (same rank, all different suits) or a "run"
+// (same suit, consecutive ranks - Ace can be low as A-2-3 or high as Q-K-A, but doesn't wrap).
+function uycIsValidGroup(cards){
+  const n = cards.length;
+  if(n!==3 && n!==4) return false;
+  const uniqueRanks = new Set(cards.map(c=>c.rank));
+  const uniqueSuits = new Set(cards.map(c=>c.suit));
+  if(uniqueRanks.size===1 && uniqueSuits.size===n) return true; // set
+  if(uniqueSuits.size===1){
+    const valuesLow = cards.map(c=>UYC_RANK_LOW[c.rank]).sort((a,b)=>a-b);
+    const valuesHigh = cards.map(c=>UYC_RANK_HIGH[c.rank]).sort((a,b)=>a-b);
+    if(uycIsConsecutive(valuesLow) || uycIsConsecutive(valuesHigh)) return true; // run
+  }
+  return false;
+}
+
+// Checks whether a 7-card hand can be split into a valid 3-group and a valid 4-group (in either
+// order). Returns {groupA, groupB} (groupA is always the group of 3) if so, otherwise null.
+function uycCheckWinningHand(cards){
+  if(cards.length!==7) return null;
+  const n = cards.length;
+  for(let i=0;i<n;i++){
+    for(let j=i+1;j<n;j++){
+      for(let k=j+1;k<n;k++){
+        const groupA = [cards[i], cards[j], cards[k]];
+        const groupB = cards.filter((_,idx)=> idx!==i && idx!==j && idx!==k);
+        if(uycIsValidGroup(groupA) && uycIsValidGroup(groupB)){
+          return {groupA, groupB};
+        }
+      }
+    }
+  }
+  return null;
+}
+
+class UpYouComeGame{
+  constructor(playerDefs){
+    this.players = playerDefs.map(p=>({...p, hand:[]}));
+    this.seatOrder = this.players.map(p=>p.id);
+    this.dealerIndex = Math.floor(Math.random()*this.seatOrder.length);
+    this.dealerId = this.seatOrder[this.dealerIndex];
+    this.deck = [];
+    this.discardPile = [];
+    this.currentIndex = null;
+    this.phase = null; // 'opening-discard' -> 'draw' -> 'discard' -> ... -> 'gameover'
+    this.log = [];
+    this.gameOver = false;
+    this.winner = null;
+    this.winningGroups = null;
+  }
+
+  getPlayer(id){ return this.players.find(p=>p.id===id); }
+  currentPlayer(){ return this.getPlayer(this.seatOrder[this.currentIndex]); }
+
+  startDeal(){
+    this.deck = shuffle(createDeck());
+    this.discardPile = [];
+    this.gameOver = false;
+    this.winner = null;
+    this.winningGroups = null;
+    this.players.forEach(p=>{ p.hand = this.deck.splice(0,7); });
+    const firstIndex = (this.dealerIndex+1) % this.seatOrder.length;
+    this.currentIndex = firstIndex;
+    const firstPlayer = this.currentPlayer();
+    firstPlayer.hand.push(this.deck.pop());
+    this.phase = 'opening-discard';
+    this.log = [];
+    this.log.push(`${this.getPlayer(this.dealerId).name} deals. ${firstPlayer.name} gets an extra card and lays the first one down.`);
+  }
+
+  openingDiscard(cardId){
+    const player = this.currentPlayer();
+    const idx = player.hand.findIndex(c=>c.id===cardId);
+    if(idx===-1) throw new Error('Card not in hand');
+    const [card] = player.hand.splice(idx,1);
+    this.discardPile.push(card);
+    this.log.push(`${player.name} lays down ${card.rank}${SUIT_SYM[card.suit]} to start the pile.`);
+    this.checkWin(player);
+    if(!this.gameOver){
+      this.phase = 'draw';
+      this.advanceTurn();
+    }
+  }
+
+  advanceTurn(){
+    this.currentIndex = (this.currentIndex+1) % this.seatOrder.length;
+  }
+
+  drawCard(source){
+    const player = this.currentPlayer();
+    if(this.phase !== 'draw') throw new Error('Not the draw phase');
+    let card;
+    if(source==='discard'){
+      if(this.discardPile.length===0) throw new Error('Discard pile is empty');
+      card = this.discardPile.pop();
+    } else {
+      if(this.deck.length===0){
+        if(this.discardPile.length===0) throw new Error('Nothing left to draw');
+        this.deck = shuffle(this.discardPile);
+        this.discardPile = [];
+        this.log.push(`The deck ran out — the discard pile was reshuffled.`);
+      }
+      card = this.deck.pop();
+    }
+    player.hand.push(card);
+    this.log.push(`${player.name} ${source==='discard'?'takes the top card from the pile':'draws from the deck'}.`);
+    this.phase = 'discard';
+    return card;
+  }
+
+  discardCard(cardId){
+    const player = this.currentPlayer();
+    if(this.phase !== 'discard') throw new Error('Not the discard phase');
+    const idx = player.hand.findIndex(c=>c.id===cardId);
+    if(idx===-1) throw new Error('Card not in hand');
+    const [card] = player.hand.splice(idx,1);
+    this.discardPile.push(card);
+    this.log.push(`${player.name} discards ${card.rank}${SUIT_SYM[card.suit]}.`);
+    this.checkWin(player);
+    if(!this.gameOver){
+      this.phase = 'draw';
+      this.advanceTurn();
+    }
+  }
+
+  checkWin(player){
+    const result = uycCheckWinningHand(player.hand);
+    if(result){
+      this.gameOver = true;
+      this.phase = 'gameover';
+      this.winner = player;
+      this.winningGroups = result;
+      this.log.push(`${player.name} wins with a valid hand!`);
+    }
+  }
+}
+
 /* ======================= APP / UI ======================= */
 const app = document.getElementById('app');
 let game = null;
@@ -2424,6 +2590,7 @@ const GAMES = [
   {id:'numbers', name:'Numbers', active:true, icon:'🔢', desc:'Pick large and small numbers, then get as close as you can to a random target using +, −, ×, ÷.'},
   {id:'brag', name:'3 Card Brag', active:true, icon:'🂡👑', desc:'Sort your dealt cards into the best 3-card hands you can. Best hand plays best hand — first to 101 wins.'},
   {id:'higherlower', name:'Higher or Lower', active:true, icon:'🔺🔻', desc:'Guess if the next card is higher or lower. Keep going until you get it wrong. First to 50 points wins.'},
+  {id:'upyoucome', name:'Up You Come', active:true, icon:'🏃♠️', desc:'Draw or take the top discard, then throw one away. First to build a run of 3 and a run of 4 (or two sets) wins.'},
 ];
 
 function render(){
@@ -2473,6 +2640,7 @@ function render(){
   else if(activeGameId==='numbers') app.appendChild(renderNumbersScreen());
   else if(activeGameId==='brag') app.appendChild(renderBragScreen());
   else if(activeGameId==='higherlower') app.appendChild(renderHigherLowerScreen());
+  else if(activeGameId==='upyoucome') app.appendChild(renderUpYouComeScreen());
   else app.appendChild(renderGame());
 }
 
@@ -2551,6 +2719,7 @@ function renderSetup(){
       : pendingGameId==='numbers' ? renderNumbersRulesPanel()
       : pendingGameId==='brag' ? renderBragRulesPanel()
       : pendingGameId==='higherlower' ? renderHigherLowerRulesPanel()
+      : pendingGameId==='upyoucome' ? renderUpYouComeRulesPanel()
       : renderRulesPanel();
     tabBody.appendChild(rulesPanel);
     return el;
@@ -2596,8 +2765,10 @@ function renderSetup(){
     ? "2–4 players. Your cards get auto-sorted into the best hands possible — best hand plays best hand. First to 101 wins."
     : pendingGameId==='higherlower'
     ? "2–4 players. Guess higher or lower than the card on top — keep going until you're wrong. First to 50 points wins."
+    : pendingGameId==='upyoucome'
+    ? "2–4 players. Draw or take the discard, then throw one away. First to build a run of 3 and a run of 4 (or two sets) wins the hand."
     : '2–4 players. Everyone starts with 5 points; you lose points based on the cards left in your hand when a round ends.';
-  const startLabel = pendingGameId==='greedypig' ? 'Start rolling' : pendingGameId==='pairs' ? 'Lay the board' : pendingGameId==='sevens' ? 'Deal everyone in' : pendingGameId==='bonk' ? 'Deal the cards' : pendingGameId==='trumps' ? 'Deal the cards' : pendingGameId==='numbers' ? 'Start the game' : pendingGameId==='brag' ? 'Deal the cards' : pendingGameId==='higherlower' ? 'Turn the first card' : 'Deal the cards';
+  const startLabel = pendingGameId==='greedypig' ? 'Start rolling' : pendingGameId==='pairs' ? 'Lay the board' : pendingGameId==='sevens' ? 'Deal everyone in' : pendingGameId==='bonk' ? 'Deal the cards' : pendingGameId==='trumps' ? 'Deal the cards' : pendingGameId==='numbers' ? 'Start the game' : pendingGameId==='brag' ? 'Deal the cards' : pendingGameId==='higherlower' ? 'Turn the first card' : pendingGameId==='upyoucome' ? 'Deal the cards' : 'Deal the cards';
 
   const setupWrap = document.createElement('div');
   setupWrap.innerHTML = `
@@ -2701,6 +2872,11 @@ function renderSetup(){
       game = new HigherLowerGame(defs);
       activeGameId = 'higherlower';
       revealedForId = null;
+    } else if(pendingGameId==='upyoucome'){
+      game = new UpYouComeGame(defs);
+      game.startDeal();
+      activeGameId = 'upyoucome';
+      revealedForId = defs.filter(d=>!d.isBot).length<=1 ? (defs.find(d=>!d.isBot)?.id || null) : null;
     } else {
       game = new BlackFiveGame(defs);
       game.startRound();
@@ -2717,6 +2893,7 @@ function renderSetup(){
     else if(activeGameId==='numbers') maybeRunNumbersBotStep();
     else if(activeGameId==='brag'){ /* no-op: hands are auto-sorted, nothing for a bot to decide */ }
     else if(activeGameId==='higherlower') maybeRunHLBotTurn();
+    else if(activeGameId==='upyoucome') maybeRunUYCBotTurn();
     else maybeRunBotTurn();
   });
 
@@ -9532,6 +9709,320 @@ function renderHLOnlineGameOver(el, g){
     el.querySelector('#rematchBtn').addEventListener('click', ()=> restartHigherLowerOnlineGame());
   }
   el.querySelector('#menuBtn2').addEventListener('click', ()=> leaveOnlineGame());
+  return el;
+}
+
+/* ======================= UP YOU COME UI (local) ======================= */
+function renderUpYouComeRulesPanel(){
+  const wrap = document.createElement('div');
+  wrap.className = 'rules-content';
+  wrap.innerHTML = `
+    <h4>Setup</h4>
+    <p>2–4 players. A random dealer is chosen. Everyone gets 7 cards, except the player clockwise from the dealer, who gets an 8th and must lay one down face-up in the middle to start the pile.</p>
+
+    <h4>How a turn works</h4>
+    <p>On your turn, either draw the top card from the face-down deck, or take the top card from the discard pile. Either way, you'll then have 8 cards — throw one away face-up onto the pile to get back to 7, and play passes to the next player clockwise.</p>
+
+    <h4>Winning</h4>
+    <p>Your aim is to arrange your 7 cards into a group of 3 and a group of 4. Each group can be either:</p>
+    <ul>
+      <li>A <strong>run</strong> — 3 or 4 cards in a row, all the same suit (like 4-5-6 of spades). Ace can be low (A-2-3) or high (Q-K-A), but doesn't wrap around.</li>
+      <li>A <strong>set</strong> — 3 or 4 cards of the same rank, all different suits (like A-A-A-A or 6-6-6).</li>
+    </ul>
+    <p>The moment your 7 cards split cleanly into a valid group of 3 and a valid group of 4, you win the hand.</p>
+  `;
+  return wrap;
+}
+
+function humanPlayersUYC(){ return game.players.filter(p=>!p.isBot); }
+
+function renderUpYouComeScreen(){
+  const el = document.createElement('div');
+  el.className = 'game-screen';
+  if(game.gameOver) return renderUYCGameOver(el);
+
+  const cp = game.currentPlayer();
+  const multiHuman = humanPlayersUYC().length > 1;
+  const needsShield = multiHuman && !cp.isBot && revealedForId !== cp.id;
+
+  el.innerHTML = `
+    <div class="topbar">
+      <div class="topbar-title">Up You Come</div>
+      <div class="topbar-actions"><button id="menuBtn">Main menu</button></div>
+    </div>
+    <div class="table-area">
+      <div class="table-main" style="overflow-y:auto;position:relative;">
+        <div class="uyc-wrap" style="padding:16px;"></div>
+      </div>
+      <details class="side-panel">
+        <summary>Players &amp; Table talk</summary>
+        <div class="side-panel-body">
+          <h3>Players</h3>
+          <div class="score-list"></div>
+          <h3>Table talk</h3>
+          <div class="log-feed"></div>
+        </div>
+      </details>
+    </div>
+  `;
+  el.querySelector('#menuBtn').addEventListener('click', ()=>{
+    if(confirm('Leave this game and return to the menu?')){
+      game=null; activeGameId=null; revealedForId=null; seatConfigs=[]; render();
+    }
+  });
+  el.querySelector('.topbar-actions').prepend(renderMuteControl());
+
+  const wrap = el.querySelector('.uyc-wrap');
+
+  const turnBanner = document.createElement('div');
+  turnBanner.className = 'hl-turn-banner';
+  turnBanner.textContent = `${cp.name}'s turn${cp.id===game.dealerId?' (dealer)':''}`;
+  wrap.appendChild(turnBanner);
+
+  const tableRow = document.createElement('div');
+  tableRow.className = 'uyc-table';
+
+  const deckCol = document.createElement('div');
+  deckCol.className = 'uyc-pile-col';
+  if(game.deck.length>0){
+    const deckCard = makeCardEl({back:true}, 'normal');
+    if(game.phase==='draw' && !cp.isBot && !needsShield){
+      deckCard.style.cursor = 'pointer';
+      deckCard.classList.add('playable');
+      deckCard.addEventListener('click', ()=> onUYCDraw('deck'));
+    }
+    deckCol.appendChild(deckCard);
+  } else {
+    deckCol.innerHTML = '<div class="uyc-pile-empty">empty</div>';
+  }
+  const deckLabel = document.createElement('div');
+  deckLabel.className = 'uyc-pile-label';
+  deckLabel.textContent = `Deck (${game.deck.length} left)`;
+  deckCol.appendChild(deckLabel);
+  tableRow.appendChild(deckCol);
+
+  const discardCol = document.createElement('div');
+  discardCol.className = 'uyc-pile-col';
+  if(game.discardPile.length>0){
+    const topCard = game.discardPile[game.discardPile.length-1];
+    const discardCardEl = makeCardEl(topCard, 'normal');
+    if(game.phase==='draw' && !cp.isBot && !needsShield){
+      discardCardEl.style.cursor = 'pointer';
+      discardCardEl.classList.add('playable');
+      discardCardEl.addEventListener('click', ()=> onUYCDraw('discard'));
+    }
+    discardCol.appendChild(discardCardEl);
+  } else {
+    discardCol.innerHTML = '<div class="uyc-pile-empty">empty</div>';
+  }
+  const discardLabel = document.createElement('div');
+  discardLabel.className = 'uyc-pile-label';
+  discardLabel.textContent = 'Discard pile';
+  discardCol.appendChild(discardLabel);
+  tableRow.appendChild(discardCol);
+
+  wrap.appendChild(tableRow);
+
+  if(game.phase==='draw' && !cp.isBot && !needsShield){
+    const hint = document.createElement('div');
+    hint.className = 'uyc-hint';
+    hint.textContent = 'Tap the deck to draw, or the discard pile to take that card.';
+    wrap.appendChild(hint);
+  } else if((game.phase==='discard' || game.phase==='opening-discard') && !cp.isBot && !needsShield){
+    const hint = document.createElement('div');
+    hint.className = 'uyc-hint';
+    hint.textContent = game.phase==='opening-discard' ? 'Choose a card to lay down and start the pile.' : 'Choose a card to discard.';
+    wrap.appendChild(hint);
+  } else if(cp.isBot){
+    const hint = document.createElement('div');
+    hint.className = 'uyc-hint';
+    hint.textContent = `${cp.name} is thinking…`;
+    wrap.appendChild(hint);
+  }
+
+  if(!needsShield && !cp.isBot){
+    const handRow = document.createElement('div');
+    handRow.className = 'uyc-hand-row';
+    const canDiscard = game.phase==='discard' || game.phase==='opening-discard';
+    sortTrumpsHand(cp.hand).forEach(c=>{
+      const cardEl = makeCardEl(c, 'normal');
+      cardEl.classList.add('uyc-hand-card');
+      if(canDiscard){
+        cardEl.addEventListener('click', ()=> onUYCDiscard(c.id));
+      } else {
+        cardEl.style.cursor = 'default';
+      }
+      handRow.appendChild(cardEl);
+    });
+    wrap.appendChild(handRow);
+  }
+
+  const scoreList = el.querySelector('.score-list');
+  game.players.forEach(p=>{
+    const item = document.createElement('div');
+    item.className = 'score-item' + (!p.isBot?' you':'');
+    item.innerHTML = `<span>${p.name}${p.isBot?' 🤖':''}${p.id===game.dealerId?' 🃏':''}${p.id===cp.id?' 👉':''}</span><span>${p.hand.length} cards</span>`;
+    scoreList.appendChild(item);
+  });
+  const logFeed = el.querySelector('.log-feed');
+  [...game.log].slice(-40).reverse().forEach(line=>{
+    const d = document.createElement('div');
+    d.textContent = line;
+    logFeed.appendChild(d);
+  });
+
+  if(needsShield){
+    const shield = document.createElement('div');
+    shield.className = 'privacy-shield';
+    shield.innerHTML = `
+      <div class="display">Pass the device to ${cp.name}</div>
+      <div style="opacity:.75;font-size:13px;">Everyone else, look away.</div>
+      <button class="primary-btn" style="width:auto;padding:12px 26px;">I'm ${cp.name} — reveal my hand</button>
+    `;
+    shield.querySelector('button').addEventListener('click', ()=>{ revealedForId = cp.id; render(); });
+    el.querySelector('.table-main').appendChild(shield);
+  }
+
+  setupSidePanelToggle(el);
+  return el;
+}
+
+function onUYCDraw(source){
+  const cp = game.currentPlayer();
+  if(cp.isBot || game.phase!=='draw') return;
+  try{ game.drawCard(source); } catch(e){ return; }
+  sfxCardFlip();
+  render();
+}
+
+function onUYCDiscard(cardId){
+  const cp = game.currentPlayer();
+  if(cp.isBot) return;
+  try{
+    if(game.phase==='opening-discard') game.openingDiscard(cardId);
+    else if(game.phase==='discard') game.discardCard(cardId);
+    else return;
+  } catch(e){ return; }
+  sfxCardPlay();
+  if(game.gameOver){ sfxWin(); render(); return; }
+  revealedForId = null;
+  render();
+  maybeRunUYCBotTurn();
+}
+
+// Very simple heuristic: score how "connected" each card is to the rest of the hand (same rank,
+// or same suit and close in rank), keep the most connected cards, discard the least connected.
+function uycScoreCard(card, hand){
+  let score = 0;
+  hand.forEach(other=>{
+    if(other===card) return;
+    if(other.rank===card.rank) score += 3;
+    if(other.suit===card.suit){
+      const diff = Math.abs(UYC_RANK_LOW[card.rank]-UYC_RANK_LOW[other.rank]);
+      if(diff>0 && diff<=2) score += (3-diff);
+    }
+  });
+  return score;
+}
+function uycChooseDiscard(hand){
+  let worst = hand[0], worstScore = uycScoreCard(hand[0], hand);
+  hand.forEach(c=>{
+    const s = uycScoreCard(c, hand);
+    if(s < worstScore){ worst = c; worstScore = s; }
+  });
+  return worst;
+}
+
+function maybeRunUYCBotTurn(){
+  if(!game || game.gameOver) return;
+  const cp = game.currentPlayer();
+  if(!cp.isBot) return;
+  setTimeout(()=>{
+    if(!game || game.gameOver) return;
+    const cp2 = game.currentPlayer();
+    if(!cp2.isBot) return;
+    if(game.phase==='opening-discard'){
+      game.openingDiscard(uycChooseDiscard(cp2.hand).id);
+      sfxCardPlay();
+      if(game.gameOver){ sfxWin(); render(); return; }
+      render();
+      maybeRunUYCBotTurn();
+      return;
+    }
+    if(game.phase==='draw'){
+      let source = 'deck';
+      if(game.discardPile.length>0){
+        const topDiscard = game.discardPile[game.discardPile.length-1];
+        const wouldHelp = cp2.hand.some(c=> c.rank===topDiscard.rank || (c.suit===topDiscard.suit && Math.abs(UYC_RANK_LOW[c.rank]-UYC_RANK_LOW[topDiscard.rank])<=2));
+        if(wouldHelp) source = 'discard';
+      }
+      game.drawCard(source);
+      sfxCardFlip();
+      render();
+      setTimeout(()=> maybeRunUYCBotTurn(), 500);
+      return;
+    }
+    if(game.phase==='discard'){
+      game.discardCard(uycChooseDiscard(cp2.hand).id);
+      sfxCardPlay();
+      if(game.gameOver){ sfxWin(); render(); return; }
+      render();
+      maybeRunUYCBotTurn();
+    }
+  }, 800);
+}
+
+function renderUYCWinGroup(label, cards){
+  const wrap = document.createElement('div');
+  const lab = document.createElement('div');
+  lab.className = 'uyc-win-group-label';
+  lab.textContent = label;
+  wrap.appendChild(lab);
+  const row = document.createElement('div');
+  row.className = 'uyc-win-group';
+  sortTrumpsHand(cards).forEach(c=> row.appendChild(makeCardEl(c, 'normal')));
+  wrap.appendChild(row);
+  return wrap;
+}
+
+function renderUYCGameOver(el){
+  const winner = game.winner;
+  const logHTML = [...game.log].slice(-60).reverse().map(line=>`<div>${line}</div>`).join('');
+  el.innerHTML = `
+    <div class="menu-screen">
+      <div class="menu-eyebrow">Hand complete</div>
+      <h1 class="menu-title">${winner.name} wins!</h1>
+      <div id="uycWinGroups" style="width:100%;max-width:420px;margin:14px 0 22px;"></div>
+      <div style="width:100%;max-width:420px;text-align:left;margin:0 0 28px;">
+        <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:var(--gold-bright);margin:0 0 10px;">Table talk</h3>
+        <div style="max-height:220px;overflow-y:auto;background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px 14px;font-size:12px;color:#cfe4da;opacity:.9;display:flex;flex-direction:column;gap:5px;">
+          ${logHTML}
+        </div>
+      </div>
+      <div style="display:flex;gap:14px;">
+        <button class="primary-btn" id="rematchBtn" style="width:auto;padding:14px 26px;">Deal again</button>
+        <button class="ghost-btn" id="menuBtn2">Main menu</button>
+      </div>
+    </div>
+  `;
+  const groupsWrap = el.querySelector('#uycWinGroups');
+  if(game.winningGroups){
+    const g3 = game.winningGroups.groupA.length===3 ? game.winningGroups.groupA : game.winningGroups.groupB;
+    const g4 = game.winningGroups.groupA.length===4 ? game.winningGroups.groupA : game.winningGroups.groupB;
+    groupsWrap.appendChild(renderUYCWinGroup('Group of 3', g3));
+    groupsWrap.appendChild(renderUYCWinGroup('Group of 4', g4));
+  }
+  el.querySelector('#rematchBtn').addEventListener('click', ()=>{
+    game.dealerIndex = (game.dealerIndex+1) % game.seatOrder.length;
+    game.dealerId = game.seatOrder[game.dealerIndex];
+    game.startDeal();
+    revealedForId = humanPlayersUYC().length<=1 ? (humanPlayersUYC()[0]?.id || null) : null;
+    render();
+    maybeRunUYCBotTurn();
+  });
+  el.querySelector('#menuBtn2').addEventListener('click', ()=>{
+    game=null; activeGameId=null; revealedForId=null; seatConfigs=[]; render();
+  });
   return el;
 }
 
