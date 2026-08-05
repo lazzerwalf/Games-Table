@@ -673,7 +673,6 @@ class BlackFiveGame{
     this.activeSuit = card.suit;
 
     if(card.rank==='2'){ this.drawPending += 2; }
-    if(card.rank==='J'){ this.skipPending = true; }
 
     // Bonus play: the card just played picks up right where the previous card left off
     // (same suit, exactly one rank higher). That earns an extra play — but the next card
@@ -692,6 +691,11 @@ class BlackFiveGame{
       return {continue:mode};
     }
 
+    // The turn is genuinely ending here - only now does a Jack actually put the next player
+    // under threat. If it were set earlier (before the continuation check above), a Jack that
+    // also happened to earn a bonus play (like J right after 10 of the same suit) would have
+    // incorrectly restricted the same player's own extra turn to jacks-only.
+    if(card.rank==='J'){ this.skipPending = true; }
     this.continuation = null;
     this.advanceIndex();
     return {advanced:true};
