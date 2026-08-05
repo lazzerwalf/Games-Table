@@ -431,6 +431,7 @@
   .uyc-action-btn:disabled{opacity:.3;cursor:not-allowed;}
   .uyc-hand-row{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin:16px 0;padding:0 8px;}
   .uyc-hand-card{cursor:pointer;transition:transform .1s ease;}
+  .uyc-hand-card.just-drawn{box-shadow:0 0 0 3px var(--gold-bright), 0 2px 10px rgba(0,0,0,.35);}
   .uyc-hand-card:hover{transform:translateY(-4px);}
   .uyc-hint{text-align:center;font-size:13px;color:#cfe4da;opacity:.85;margin:10px 0;}
   .uyc-win-group{display:flex;gap:6px;justify-content:center;margin:10px 0;}
@@ -2055,6 +2056,7 @@ class UpYouComeGame{
     this.gameOver = false;
     this.winner = null;
     this.winningGroups = null;
+    this.lastDrawnCardId = null;
   }
 
   getPlayer(id){ return this.players.find(p=>p.id===id); }
@@ -2111,6 +2113,7 @@ class UpYouComeGame{
       card = this.deck.pop();
     }
     player.hand.push(card);
+    this.lastDrawnCardId = card.id;
     this.log.push(`${player.name} ${source==='discard'?'takes the top card from the pile':'draws from the deck'}.`);
     this.phase = 'discard';
     return card;
@@ -9847,6 +9850,7 @@ function renderUpYouComeScreen(){
     sortTrumpsHand(cp.hand).forEach(c=>{
       const cardEl = makeCardEl(c, 'normal');
       cardEl.classList.add('uyc-hand-card');
+      if(c.id === game.lastDrawnCardId && game.phase==='discard') cardEl.classList.add('just-drawn');
       if(canDiscard){
         cardEl.addEventListener('click', ()=> onUYCDiscard(c.id));
       } else {
